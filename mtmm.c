@@ -16,20 +16,23 @@
 #include <math.h>
 #include <stdlib.h>
 
-/* Debug tools*/
-#define DBG_MSG {printf("\n[%d]: %s):", __LINE__, __FUNCTION__);printf
+/* Debug tools */
+#define DBG_MSG printf("\n[%d]: %s):", __LINE__, __FUNCTION__);printf
 #define DBG_ENTRY printf("\n[%d]: --> %s", __LINE__,__FUNCTION__);
 #define DBG_EXIT printf("\n[%d]: <-- %s", __LINE__,__FUNCTION__);
 
-#define hash2(A) ((A)%2)
-#define abrt(X) perror(X); exit(0);
+
+
 #define NUM_SIZE_CLASSES 16
 #define CPU_COUNT 2
 #define GLOBAL_HEAP CPU_COUNT+1
+#define BLOCK_LIMIT SUPERBLOCK_SIZE/2
+
+#define HASH(A) ((A)%CPU_COUNT)
+#define abrt(X) perror(X); exit(0);
 
 void * malloc_init (size_t sz);
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
-/*static int debug=0;*/
 
 typedef struct sblockheader {
 	int is_used;
@@ -74,7 +77,7 @@ typedef struct ssizeclass {
 
 typedef struct sCPUHeap {
 /*
-* @brief
+* @b	rief
 * CPUid – to hold the CPU ID
 * mutex - Mutex to lock the heap
 * sizeClasses - array of size classes
@@ -93,26 +96,45 @@ static struct sHoard {
  * It initializes the structs and then replaces the real_malloc pointer to be "malloc_work" - for the next calls
  */
 
+void * allocate_new_superblock(size_t header_size, unsigned int segments) { /*TODO Write this one */
+	DBG_ENTRY
+	int fd;
+	void *p;
+	size_t total_to_alloc;
+
+	fd = open("/dev/zero", O_RDWR);
+	if (fd == -1){
+		abrt("Memory allocation from OS failed");
+	}
+	total_to_alloc=SUPERBLOCK_SIZE+(segments*header_size);
+
+	p = mmap(0, total_to_alloc, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	close(fd);
+
+	if (p == MAP_FAILED){
+		abrt("OS failed to allocate memory");
+	}
+	DBG_EXIT
+	return p;
+}
 
 
 void * malloc_work (size_t sz) {
+	DBG_ENTRY
+	/* NOTES
+	 * to allocate for a size class (SUPERBLOCK_SIZE/sizeclass)*sizeof(header)+SUPERBLOCK_SIZE
+	 * */
+
+	pthread_t self_tid;
+	void *p;
+	self_tid=pthread_self();
 
 	if (sz<1) { /* valid size */
-		if (sz>(SUPERBLOCK_SIZE/2)) { /* sz > S/2, allocate the superblock from the OS and return it. */
-			int fd;
-			void *p;
-			fd = open("/dev/zero", O_RDWR);
-			if (fd == -1){
-				perror("Memory allocation from OS failed");
-				exit (0);
-			}
-			p = mmap(0, sz + sizeof(BlockHeader), PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
-			close(fd);
+		if (sz>(BLOCK_LIMIT)) { /* sz > S/2, allocate the superblock from the OS and return it. */
 
-			if (p == MAP_FAILED){
-				perror(NULL);
-				return 0;
-			}
+			DBG_MSG("Requested size exceeds half super block");
+
+			p=allocate_new_superblock(sizeof(BlockHeader),1);
 
 			((BlockHeader *) p)->size = sz;
 			((BlockHeader *) p)->next=NULL;
@@ -122,37 +144,44 @@ void * malloc_work (size_t sz) {
 
 		} else {
 
+			int curr_cpu = HASH(self_tid); /* 2. i ← hash(the current thread).*/
+			int relevant_class=(int)ceil(log2(sz));
+			SizeClass * curr_class=&(hoard.mHeaps[curr_cpu].sizeClasses[relevant_class]);
 
-		/* to allocate for a size class (SUPERBLOCK_SIZE/sizeclass)*sizeof(header)+SUPERBLOCK_SIZE */
+			pthread_mutex_lock( &(curr_class->mutex) ); /* 3. Lock heap i */
+
+			if (curr_class->totat_size == 0) ;
+
+			/*
+
+					4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).
+					5. If there is no superblock with free space,
+					6. Check heap 0 (the global heap) for a superblock.
+					7. If there is none,
+					8. Allocate S bytes as superblock s and set the owner to heap i.
+					9. Else,
+					10. Transfer the superblock s to heap i.
+					11. u 0 ← u 0 − s.u
+					12. u i ← u i + s.u
+					13. a 0 ← a 0 − S
+					14. a i ← a i + S
+					15. u i ← u i + sz.
+					16. s.u ← s.u + sz.
+					17. Unlock heap i.
+					18. Return a block from the superblock.
+			 */
 
 		}
 
-		int curr_cpu = 	/*TID*/0%CPU_COUNT;
-		int relevant_class; /*log of request size in base 2 +1 */
-		pthread_mutex_lock( &(hoard.mHeaps[curr_cpu].sizeClasses[relevant_class].mutex) ); /* Lock the relevant size class - wait for it while (EBUSY == pthread_mutex_lock(&mutex) {}*/
+
 		/*
-			2. i ← hash(the current thread).
-			3. Lock heap i.  <------ Use a while statement -
-			4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).
-			5. If there is no superblock with free space,
-			6. Check heap 0 (the global heap) for a superblock.
-			7. If there is none,
-			8. Allocate S bytes as superblock s and set the owner to heap i.
-			9. Else,
-			10. Transfer the superblock s to heap i.
-			11. u 0 ← u 0 − s.u
-			12. u i ← u i + s.u
-			13. a 0 ← a 0 − S
-			14. a i ← a i + S
-			15. u i ← u i + sz.
-			16. s.u ← s.u + sz.
-			17. Unlock heap i.
-			18. Return a block from the superblock.
+
 		 */
 
 
 
 	}
+	DBG_EXIT
 
 	return NULL;/*cannot satisfy request*/
 
@@ -160,27 +189,24 @@ void * malloc_work (size_t sz) {
 
 void * malloc_init (size_t sz) {
 
-	int i=0;
-	for (i=0; i<=CPU_COUNT;i++) { /* Init the CPU heaps*/
-		hoard.mHeaps[i].CPUid=i;
+	int idx_cpu=0;
+	for (idx_cpu=0; idx_cpu<=CPU_COUNT;idx_cpu++) { /* Init the CPU heaps*/
+		hoard.mHeaps[idx_cpu].CPUid=idx_cpu;
+		int idx_class;
+		for (idx_class=0; idx_class<NUM_SIZE_CLASSES; idx_class++) { /* Init the SizeClass and the superblock list*/
+			if (pthread_mutex_init(&(hoard.mHeaps[idx_cpu].sizeClasses[idx_class].mutex), NULL)) { /* Init the heap mutex*/
+				abrt("Initialization failed.\n"); /* If mutex init fails */
+			}
+			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].mSize=(int)pow(2,idx_class);
+			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].total_used=0;
+			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].totat_size=0;
+			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.count=0;
+			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.head=NULL;
+			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.tail=NULL;
 
-		if (pthread_mutex_init(&(hoard.mHeaps[i].mutex), NULL)) { /* Init the heap mutex*/
-			perror("Initialization failed.\n"); /* If mutex init fails */
-			exit (0);
-		}
-
-		int j;
-		for (j=0; j<NUM_SIZE_CLASSES; j++) { /* Init the SizeClass and the superblock list*/
-			hoard.mHeaps[i].sizeClasses[j].mSize=(int)pow(2,j);
-			hoard.mHeaps[i].sizeClasses[j].total_used=0;
-			hoard.mHeaps[i].sizeClasses[j].totat_size=0;
-			hoard.mHeaps[i].sizeClasses[j].super_blocks_list.count=0;
-			hoard.mHeaps[i].sizeClasses[j].super_blocks_list.head=NULL;
-			hoard.mHeaps[i].sizeClasses[j].super_blocks_list.tail=NULL;
 		}
 
 	}
-
 	real_malloc=malloc_work;
 	return ((*real_malloc)(sz)); /* Run the actual allocation function*/
 }
