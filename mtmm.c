@@ -54,6 +54,8 @@ typedef struct ssuperblock {
 	int num_blocks;
 	int num_used_blocks;
 	BlockList blocks;
+	pthread_mutex_t mutex;
+
 
 	struct ssuperblock * prev;
 	struct ssuperblock * next;
@@ -91,12 +93,8 @@ static struct sHoard {
 	MemHeap mHeaps[CPU_COUNT+1]; // 2 CPUs, and the last one is the global
 } hoard;
 
-/*
- * This function should only run once.
- * It initializes the structs and then replaces the real_malloc pointer to be "malloc_work" - for the next calls
- */
-
-void * allocate_new_superblock(size_t header_size, unsigned int segments) { /*TODO Write this one */
+void * allocate_new_superblock(size_t header_size, unsigned int segments) {
+	/*TODO Change the allocation size to keep in S */
 	DBG_ENTRY
 	int fd;
 	void *p;
@@ -143,9 +141,9 @@ void * malloc_work (size_t sz) {
 			return (p + sizeof(BlockHeader));
 
 		} else {
-
+			/* TODO when getting a super block for chopping  need to init the mutext*/
 			int curr_cpu = HASH(self_tid); /* 2. i ← hash(the current thread).*/
-			int relevant_class=(int)ceil(log2(sz));
+			int relevant_class=(int)ceil(log2(sz)); /*TODO need to add to sz the size of the small header */
 			SizeClass * curr_class=&(hoard.mHeaps[curr_cpu].sizeClasses[relevant_class]);
 
 			pthread_mutex_lock( &(curr_class->mutex) ); /* 3. Lock heap i */
@@ -187,6 +185,10 @@ void * malloc_work (size_t sz) {
 
 }
 
+/*
+ * This function should only run once.
+ * It initializes the structs and then replaces the real_malloc pointer to be "malloc_work" - for the next calls
+ */
 void * malloc_init (size_t sz) {
 
 	int idx_cpu=0;
