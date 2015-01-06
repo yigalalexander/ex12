@@ -33,8 +33,9 @@ void * malloc_init (size_t sz);
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
 
 struct MemPool {
-	void * pool;
-	unsigned int free;
+	void * pool=NULL;
+	unsigned int free=0;
+	unsigned int total_size=0;
 
 } int_mem_pool;
 
@@ -211,6 +212,7 @@ void mem_pool_init(size_t sz) {
 
 	int_mem_pool.pool=fetch_os_memory(sz,0,0);
 	int_mem_pool.free=sz;
+	int_mem_pool.total_size+=sz;
 
 }
 
@@ -218,13 +220,21 @@ void mem_pool_init(size_t sz) {
 void * mem_pool_alloc(size_t sz) {
 	void * p;
 
-	if (sz>int_mem_pool.free) {
-		p=fetch_os_memory(SUPERBLOCK_SIZE,0,0);
-		if (free==0) {
+	if (sz>int_mem_pool.free) { /* need more memory added to the pool*/
+
+		if (free>0) { /* still have some bytes left, return them */
+			munmap(int_mem_pool.pool,int_mem_pool.free);
+			int_mem_pool.total_size-=int_mem_pool.free;
 
 		}
+
+		mem_pool_init(SUPERBLOCK_SIZE); /* add more memory to the pool */
+
 	}
+
 	p=int_mem_pool.pool;
+	int_mem_pool.pool+=sz; /* advance the pool pointer*/
+	int_mem_pool.free-=sz; /* update free sapce */
 
 	return p;
 }
