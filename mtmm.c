@@ -21,8 +21,6 @@
 #define DBG_ENTRY printf("\n[%d]: --> %s", __LINE__,__FUNCTION__);
 #define DBG_EXIT printf("\n[%d]: <-- %s", __LINE__,__FUNCTION__);
 
-
-
 #define NUM_SIZE_CLASSES 16
 #define CPU_COUNT 2
 #define GLOBAL_HEAP CPU_COUNT+1
@@ -34,6 +32,12 @@
 void * malloc_init (size_t sz);
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
 
+struct MemPool {
+	void * pool;
+	unsigned int free;
+
+} int_mem_pool;
+
 typedef struct sblockheader {
 	int is_used;
 	void * addr;
@@ -44,11 +48,21 @@ typedef struct sblockheader {
 	struct sblockheader * next;
 } BlockHeader;
 
+
 typedef struct sblocklist {
 	BlockHeader * head;
 	BlockHeader * tail;
 	int count;
 } BlockList;
+
+
+
+/* Small header for */
+typedef struct MiniBlockHeader {
+	BlockHeader * block;
+};
+
+
 
 typedef struct ssuperblock {
 	int num_blocks;
@@ -57,6 +71,7 @@ typedef struct ssuperblock {
 	pthread_mutex_t mutex;
 
 
+	void * heap;
 	struct ssuperblock * prev;
 	struct ssuperblock * next;
 } SuperBlock;
@@ -71,7 +86,7 @@ typedef struct ssizeclass {
 
 	unsigned int mSize;
 	pthread_mutex_t mutex;
-	size_t totat_size;
+	size_t total_size;
 	size_t total_used;
 	SuperBlockList super_blocks_list;
 
@@ -93,8 +108,8 @@ static struct sHoard {
 	MemHeap mHeaps[CPU_COUNT+1]; // 2 CPUs, and the last one is the global
 } hoard;
 
-void * allocate_new_superblock(size_t header_size, unsigned int segments) {
-	/*TODO Change the allocation size to keep in S */
+void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
+
 	DBG_ENTRY
 	int fd;
 	void *p;
@@ -104,7 +119,7 @@ void * allocate_new_superblock(size_t header_size, unsigned int segments) {
 	if (fd == -1){
 		abrt("Memory allocation from OS failed");
 	}
-	total_to_alloc=SUPERBLOCK_SIZE+(segments*header_size);
+	total_to_alloc=sz+(segments*header_size);
 
 	p = mmap(0, total_to_alloc, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
 	close(fd);
@@ -115,6 +130,11 @@ void * allocate_new_superblock(size_t header_size, unsigned int segments) {
 	DBG_EXIT
 	return p;
 }
+
+/* TODO Add chopping function*/
+
+/* TODO add a function to hand out memory for headers */
+
 
 
 void * malloc_work (size_t sz) {
@@ -127,12 +147,12 @@ void * malloc_work (size_t sz) {
 	void *p;
 	self_tid=pthread_self();
 
-	if (sz<1) { /* valid size */
+	if (sz>=1) { /* valid size */
 		if (sz>(BLOCK_LIMIT)) { /* sz > S/2, allocate the superblock from the OS and return it. */
 
 			DBG_MSG("Requested size exceeds half super block");
 
-			p=allocate_new_superblock(sizeof(BlockHeader),1);
+			p=fetch_os_memory(sizeof(BlockHeader),1);
 
 			((BlockHeader *) p)->size = sz;
 			((BlockHeader *) p)->next=NULL;
@@ -148,7 +168,7 @@ void * malloc_work (size_t sz) {
 
 			pthread_mutex_lock( &(curr_class->mutex) ); /* 3. Lock heap i */
 
-			if (curr_class->totat_size == 0) ;
+			if (curr_class->total_size == 0) ;
 
 			/*
 
@@ -185,6 +205,32 @@ void * malloc_work (size_t sz) {
 
 }
 
+/* Add memory for the internal memory pool*/
+
+void mem_pool_init(size_t sz) {
+
+	int_mem_pool.pool=fetch_os_memory(sz,0,0);
+	int_mem_pool.free=sz;
+
+}
+
+/* Get memory from the internal memory pool*/
+void * mem_pool_alloc(size_t sz) {
+	void * p;
+
+	if (sz>int_mem_pool.free) {
+		p=fetch_os_memory(SUPERBLOCK_SIZE,0,0);
+		if (free==0) {
+
+		}
+	}
+	p=int_mem_pool.pool;
+
+	return p;
+}
+
+void
+
 /*
  * This function should only run once.
  * It initializes the structs and then replaces the real_malloc pointer to be "malloc_work" - for the next calls
@@ -201,7 +247,7 @@ void * malloc_init (size_t sz) {
 			}
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].mSize=(int)pow(2,idx_class);
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].total_used=0;
-			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].totat_size=0;
+			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].total_size=0;
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.count=0;
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.head=NULL;
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.tail=NULL;
@@ -209,8 +255,14 @@ void * malloc_init (size_t sz) {
 		}
 
 	}
+
+
 	real_malloc=malloc_work;
 	return ((*real_malloc)(sz)); /* Run the actual allocation function*/
+
+	/* TODO get a superblock for headers*/
+
+
 }
 
 void * malloc (size_t sz) {
