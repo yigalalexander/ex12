@@ -55,7 +55,7 @@ typedef struct sblockheader {
 typedef struct sblocklist {
 	BlockHeader * head;
 	BlockHeader * tail;
-	int count;
+	int count; /* Number of block currently in the list*/
 } BlockList;
 
 
@@ -69,7 +69,7 @@ typedef struct ssuperblock {
 	int num_free_blocks;
 	BlockList blocks;
 	pthread_mutex_t mutex;
-
+	void * raw_mem;
 
 	void * heap;
 	struct ssuperblock * prev;
@@ -131,8 +131,6 @@ void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
 	return p;
 }
 
-/* TODO Add chopping function*/
-
 
 void * malloc_work (size_t sz) {
 	DBG_ENTRY
@@ -168,23 +166,34 @@ void * malloc_work (size_t sz) {
 			pthread_mutex_lock( &(curr_class->mutex) ); /* 3. Lock heap i */
 
 			if (curr_class->total_size == 0)  { /* We have something in the size class */
-				SuperBlock * curr_ptr;
-				SuperBlock * prev_ptr;
+				SuperBlock * curr_sb;
+				SuperBlock * prev_sb;
 
-				prev_ptr=curr_class->super_blocks_list.tail;
+				prev_sb=curr_class->super_blocks_list.tail;
 
-				for (curr_ptr=curr_class->super_blocks_list.head; (curr_ptr != curr_class->super_blocks_list.tail) ; curr_ptr=curr_ptr->next;) {
+				for (curr_sb=curr_class->super_blocks_list.head;
+					 (curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
+					 curr_sb=curr_sb->next) {
+					/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
+					prev_sb=curr_sb;
+				}
+
+				if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
+					BlockHeader * curr_block=curr_sb->blocks.head;
+
 
 				}
-				/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
-			} else { /* Need to add a superblock 5. If there is no superblock with free space, */
+
+				/* Else need to add a super block  do nothing we will get to next block of code*/
+			}
+			/* Need to add a superblock 5. If there is no superblock with free space, */
 				/*
 				6. Check heap 0 (the global heap) for a superblock.
 							7. If there is none,
 							8. Allocate S bytes as superblock s and set the owner to heap i.
 							9. Else,
 							10. Transfer the superblock s to heap i. */
-			}
+			/* TODO Add chopping function*/
 					/*
 					11. u 0 ← u 0 − s.u
 					12. u i ← u i + s.u
