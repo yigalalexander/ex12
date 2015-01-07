@@ -172,15 +172,31 @@ void * malloc_work (size_t sz) {
 				prev_sb=curr_class->super_blocks_list.tail;
 
 				for (curr_sb=curr_class->super_blocks_list.head;
-					 (curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
-					 curr_sb=curr_sb->next) {
+					   (curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
+					   curr_sb=curr_sb->next) {
 					/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
 					prev_sb=curr_sb;
 				}
 
 				if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
-					BlockHeader * curr_block=curr_sb->blocks.head;
+					BlockHeader * temp_block;
 
+					temp_block=curr_sb->blocks.head;
+
+					if (curr_sb->num_free_blocks>1) { /*If there is more than one */
+
+							curr_sb->blocks.tail->next = curr_sb->blocks.head->next;// connect tail with new head (next)
+							curr_sb->blocks.head->prev = curr_sb->blocks.tail;// connect new head with tail (prev)
+							curr_sb->blocks.head = curr_sb->blocks.head->next;// update new head
+
+					} else { /* Single Block available */
+
+					}
+
+					curr_sb->num_free_blocks--;// decrease num of free blocks on the superblock
+					curr_class->total_used = curr_class->total_used + temp_block->size;// update statistics
+
+					return (temp_block->addr);// return pointer
 
 				}
 
@@ -210,8 +226,8 @@ void * malloc_work (size_t sz) {
 		//17. Unlock heap i.
 		//18. Return a block from the superblock.
 	}
-	DBG_EXIT
 
+	DBG_EXIT
 	return NULL;/*cannot satisfy request*/
 
 }
@@ -221,7 +237,7 @@ void mem_pool_init(size_t sz) {
 
 	int_mem_pool.pool=fetch_os_memory(sz,0,0);
 	int_mem_pool.free=sz;
-	int_mem_pool.total_size+=sz;
+	int_mem_pool.total_size=int_mem_pool.total_size+sz;
 
 }
 
@@ -238,8 +254,8 @@ void * mem_pool_alloc(size_t sz) {
 		mem_pool_init(SUPERBLOCK_SIZE); /* add more memory to the pool */
 	}
 	p=int_mem_pool.pool;
-	int_mem_pool.pool+=sz; /* advance the pool pointer*/
-	int_mem_pool.free-=sz; /* update free space */
+	int_mem_pool.pool=int_mem_pool.pool+sz; /* advance the pool pointer*/
+	int_mem_pool.free=int_mem_pool.free-sz; /* update free space */
 	return p;
 }
 
