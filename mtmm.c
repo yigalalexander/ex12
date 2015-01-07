@@ -25,6 +25,8 @@
 #define CPU_COUNT 2
 #define GLOBAL_HEAP CPU_COUNT+1
 #define BLOCK_LIMIT SUPERBLOCK_SIZE/2
+#define K 0 /* Should it be 1 */
+#define F (1/4)
 
 #define HASH(A) ((A)%CPU_COUNT)
 #define abrt(X) perror(X); exit(0);
@@ -57,17 +59,14 @@ typedef struct sblocklist {
 } BlockList;
 
 
-
 /* Small header for */
 typedef struct MiniBlockHeader {
 	BlockHeader * block;
 };
 
-
-
 typedef struct ssuperblock {
 	int num_blocks;
-	int num_used_blocks;
+	int num_free_blocks;
 	BlockList blocks;
 	pthread_mutex_t mutex;
 
@@ -134,9 +133,6 @@ void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
 
 /* TODO Add chopping function*/
 
-/* TODO add a function to hand out memory for headers */
-
-
 
 void * malloc_work (size_t sz) {
 	DBG_ENTRY
@@ -149,11 +145,11 @@ void * malloc_work (size_t sz) {
 	self_tid=pthread_self();
 
 	if (sz>=1) { /* valid size */
-		if (sz>(BLOCK_LIMIT)) { /* sz > S/2, allocate the superblock from the OS and return it. */
+		if ( (sz+sizeof(BlockHeader)) >(BLOCK_LIMIT)) { /* sz > S/2, allocate the superblock from the OS and return it. */
 
 			DBG_MSG("Requested size exceeds half super block");
 
-			p=fetch_os_memory(sizeof(BlockHeader),1);
+			p=fetch_os_memory(sz+sizeof(BlockHeader),0,0);
 
 			((BlockHeader *) p)->size = sz;
 			((BlockHeader *) p)->next=NULL;
@@ -164,41 +160,46 @@ void * malloc_work (size_t sz) {
 		} else {
 			/* TODO when getting a super block for chopping  need to init the mutext*/
 			int curr_cpu = HASH(self_tid); /* 2. i ← hash(the current thread).*/
-			int relevant_class=(int)ceil(log2(sz)); /*TODO need to add to sz the size of the small header */
+			int relevant_class=(int)ceil(log2(sz));
+
+			/* relevant size class */
 			SizeClass * curr_class=&(hoard.mHeaps[curr_cpu].sizeClasses[relevant_class]);
 
 			pthread_mutex_lock( &(curr_class->mutex) ); /* 3. Lock heap i */
 
-			if (curr_class->total_size == 0) ;
+			if (curr_class->total_size == 0)  { /* We have something in the size class */
+				SuperBlock * curr_ptr;
+				SuperBlock * prev_ptr;
 
-			/*
+				prev_ptr=curr_class->super_blocks_list.tail;
 
-					4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).
-					5. If there is no superblock with free space,
-					6. Check heap 0 (the global heap) for a superblock.
-					7. If there is none,
-					8. Allocate S bytes as superblock s and set the owner to heap i.
-					9. Else,
-					10. Transfer the superblock s to heap i.
+				for (curr_ptr=curr_class->super_blocks_list.head; (curr_ptr != curr_class->super_blocks_list.tail) ; curr_ptr=curr_ptr->next;) {
+
+				}
+				/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
+			} else { /* Need to add a superblock 5. If there is no superblock with free space, */
+				/*
+				6. Check heap 0 (the global heap) for a superblock.
+							7. If there is none,
+							8. Allocate S bytes as superblock s and set the owner to heap i.
+							9. Else,
+							10. Transfer the superblock s to heap i. */
+			}
+					/*
 					11. u 0 ← u 0 − s.u
 					12. u i ← u i + s.u
 					13. a 0 ← a 0 − S
 					14. a i ← a i + S
 					15. u i ← u i + sz.
 					16. s.u ← s.u + sz.
-					17. Unlock heap i.
-					18. Return a block from the superblock.
-			 */
-
+					 */
 		}
-
-
 		/*
 
 		 */
 
-
-
+		//17. Unlock heap i.
+		//18. Return a block from the superblock.
 	}
 	DBG_EXIT
 
@@ -207,7 +208,6 @@ void * malloc_work (size_t sz) {
 }
 
 /* Add memory for the internal memory pool*/
-
 void mem_pool_init(size_t sz) {
 
 	int_mem_pool.pool=fetch_os_memory(sz,0,0);
@@ -216,6 +216,7 @@ void mem_pool_init(size_t sz) {
 
 }
 
+/* Get memory from the internal memory pool - increase pool if needed*/
 void * mem_pool_alloc(size_t sz) {
 	void * p;
 
@@ -224,21 +225,15 @@ void * mem_pool_alloc(size_t sz) {
 		if (free>0) { /* still have some bytes left, return them */
 			munmap(int_mem_pool.pool,int_mem_pool.free);
 			int_mem_pool.total_size-=int_mem_pool.free;
-
 		}
-
 		mem_pool_init(SUPERBLOCK_SIZE); /* add more memory to the pool */
-
 	}
-
 	p=int_mem_pool.pool;
 	int_mem_pool.pool+=sz; /* advance the pool pointer*/
-	int_mem_pool.free-=sz; /* update free sapce */
-
+	int_mem_pool.free-=sz; /* update free space */
 	return p;
 }
 
-void
 
 /*
  * This function should only run once.
@@ -260,18 +255,13 @@ void * malloc_init (size_t sz) {
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.count=0;
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.head=NULL;
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.tail=NULL;
-
 		}
 
 	}
-
-
 	real_malloc=malloc_work;
 	return ((*real_malloc)(sz)); /* Run the actual allocation function*/
 
-	/* TODO get a superblock for headers*/
-
-
+	mem_pool_init(SUPERBLOCK_SIZE); /* get a superblock for headers*/
 }
 
 void * malloc (size_t sz) {
