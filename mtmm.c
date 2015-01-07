@@ -23,7 +23,7 @@
 
 #define NUM_SIZE_CLASSES 16
 #define CPU_COUNT 2
-#define GLOBAL_HEAP CPU_COUNT+1
+#define GLOBAL_HEAP CPU_COUNT
 #define BLOCK_LIMIT SUPERBLOCK_SIZE/2
 #define K 0 /* Should it be 1 */
 #define F (1/4)
@@ -161,63 +161,71 @@ void * malloc_work (size_t sz) {
 			int relevant_class=(int)ceil(log2(sz));
 
 			/* relevant size class */
-			SizeClass * curr_class=&(hoard.mHeaps[curr_cpu].sizeClasses[relevant_class]);
+			SizeClass * curr_class=&( hoard.mHeaps[curr_cpu].sizeClasses[relevant_class] );
 
 			pthread_mutex_lock( &(curr_class->mutex) ); /* 3. Lock heap i */
 
-			if (curr_class->total_size == 0)  { /* We have something in the size class */
-				SuperBlock * curr_sb;
-				SuperBlock * prev_sb;
+			SuperBlock * curr_sb;
+			SuperBlock * prev_sb;
+			MemHeap * heap_to_scan; /* Pointer to the heap to look in */
 
-				prev_sb=curr_class->super_blocks_list.tail;
-
-				for (curr_sb=curr_class->super_blocks_list.head;
-					   (curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
-					   curr_sb=curr_sb->next) {
-					/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
-					prev_sb=curr_sb;
-				}
-
-				if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
-					BlockHeader * temp_block;
-
-					temp_block=curr_sb->blocks.head;
-
-					if (curr_sb->num_free_blocks>1) { /*If there is more than one */
-
-							curr_sb->blocks.tail->next = curr_sb->blocks.head->next;// connect tail with new head (next)
-							curr_sb->blocks.head->prev = curr_sb->blocks.tail;// connect new head with tail (prev)
-							curr_sb->blocks.head = curr_sb->blocks.head->next;// update new head
-
-					} else { /* Single Block available */
-
-					}
-
-					curr_sb->num_free_blocks--;// decrease num of free blocks on the superblock
-					curr_class->total_used = curr_class->total_used + temp_block->size;// update statistics
-
-					return (temp_block->addr);// return pointer
-
-				}
-
-				/* Else need to add a super block  do nothing we will get to next block of code*/
+			if ( !((curr_class->total_size - curr_class->total_used) > 0) )  { /* If there isn't free space in the relevant CPU heap */
+				heap_to_scan=&( hoard.mHeaps[curr_cpu] );
+			} else {
+				heap_to_scan=&( hoard.mHeaps[GLOBAL_HEAP] );
+				pthread_mutex_lock( &( heap_to_scan->sizeClasses[relevant_class].mutex ) ); /* Going to use the global heap - need to lock the size class there too*/
 			}
+
+			prev_sb=curr_class->super_blocks_list.tail;
+
+			for (curr_sb=curr_class->super_blocks_list.head;
+					(curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
+					curr_sb=curr_sb->next) {
+				/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
+				prev_sb=curr_sb;
+			}
+
+			if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
+				BlockHeader * temp_block;
+
+				temp_block=curr_sb->blocks.head;
+
+				if (curr_sb->num_free_blocks>1) { /*If there is more than one */
+
+					curr_sb->blocks.tail->next = curr_sb->blocks.head->next;// connect tail with new head (next)
+					curr_sb->blocks.head->prev = curr_sb->blocks.tail;// connect new head with tail (prev)
+					curr_sb->blocks.head = curr_sb->blocks.head->next;// update new head
+
+				} else { /* Single Block available */
+					curr_sb->blocks.head=NULL;
+					curr_sb->blocks.head=NULL;
+				}
+
+				curr_sb->blocks.count--;
+				curr_sb->num_free_blocks--;// decrease num of free blocks on the superblock
+				curr_class->total_used = curr_class->total_used + temp_block->size;// update statistics
+
+				return (temp_block->addr);// return pointer
+
+			}
+
+			/* Else need to add a super block  do nothing we will get to next block of code*/
 			/* Need to add a superblock 5. If there is no superblock with free space, */
-				/*
+			/*
 				6. Check heap 0 (the global heap) for a superblock.
 							7. If there is none,
 							8. Allocate S bytes as superblock s and set the owner to heap i.
 							9. Else,
 							10. Transfer the superblock s to heap i. */
 			/* TODO Add chopping function*/
-					/*
+			/*
 					11. u 0 ← u 0 − s.u
 					12. u i ← u i + s.u
 					13. a 0 ← a 0 − S
 					14. a i ← a i + S
 					15. u i ← u i + sz.
 					16. s.u ← s.u + sz.
-					 */
+			 */
 		}
 		/*
 
