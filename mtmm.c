@@ -216,7 +216,6 @@ void mem_pool_init(size_t sz) {
 
 }
 
-/* Get memory from the internal memory pool*/
 void * mem_pool_alloc(size_t sz) {
 	void * p;
 
