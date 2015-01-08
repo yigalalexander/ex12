@@ -119,13 +119,25 @@ void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
 }
 
 /* Scans a given heap for a suitable SuperBlock */
-void * scan_heap (MemHeap * heap,size_t sz) {
+SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
 	SuperBlock * curr_sb;
 	SuperBlock * prev_sb;
-	int relevant_class=(int)ceil(log2(sz));
-	SizeClass * curr_class=&( hoard.mHeaps[curr_cpu].sizeClasses[relevant_class] );
+	SizeClass * curr_class=&( heap->sizeClasses[requested_class] );
 
 	prev_sb=curr_class->super_blocks_list.tail;
+
+	for (curr_sb=curr_class->super_blocks_list.head;
+			(curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
+			curr_sb=curr_sb->next) {
+
+		prev_sb=curr_sb;
+	}
+
+	if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
+		return curr_sb;
+	}
+
+	return NULL;
 
 }
 
@@ -141,10 +153,13 @@ void * malloc_work (size_t sz) {
 	 * */
 
 	pthread_t self_tid;
+	SuperBlock * source_sb; /* SuperBlock to take from */
 	void *p;
-	self_tid=pthread_self();
+
+
 
 	if (sz>=1) { /* valid size */
+
 		if ( (sz+sizeof(BlockHeader)) >(BLOCK_LIMIT)) { /* sz > S/2, allocate the superblock from the OS and return it. */
 
 			DBG_MSG("Requested size exceeds half super block");
@@ -163,31 +178,19 @@ void * malloc_work (size_t sz) {
 			int relevant_class=(int)ceil(log2(sz));
 
 			/* relevant size class */
-			SizeClass * curr_class=&( hoard.mHeaps[curr_cpu].sizeClasses[relevant_class] );
 
-			pthread_mutex_lock( &(curr_class->mutex) ); /* 3. Lock heap i */
+			pthread_mutex_lock( &(hoard.mHeaps[curr_cpu].sizeClasses.mutex) ); /* 3. Lock heap relevant size class in relevant heap */
 
-			SuperBlock * curr_sb;
-			SuperBlock * prev_sb;
 			MemHeap * heap_to_scan; /* Pointer to the heap to look in */
 
-			if ( !((curr_class->total_size - curr_class->total_used) > 0) )  { /* If there isn't free space in the relevant CPU heap */
-				heap_to_scan=&( hoard.mHeaps[curr_cpu] );
-			} else {
-				heap_to_scan=&( hoard.mHeaps[GLOBAL_HEAP] );
-				pthread_mutex_lock( &( heap_to_scan->sizeClasses[relevant_class].mutex ) ); /* Going to use the global heap - need to lock the size class there too*/
+			source_sb=scan_heap( &( hoard.mHeaps[curr_cpu] ) ,relevant_class);/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
+			if ( source_sb != NULL) {
+
+				pthread_mutex_lock( &(hoard.mHeaps[curr_cpu].sizeClasses.mutex) ); /* Lock global heap */
+				source_sb=scan_heap( &( hoard.mHeaps[GLOBAL_HEAP] ) ,relevant_class); /* Scan the global heap as we did not find a super block in the CPU heap*/
+
 			}
 
-			scan_heap(heap_to_scan,sz);
-
-			prev_sb=curr_class->super_blocks_list.tail;
-
-			for (curr_sb=curr_class->super_blocks_list.head;
-					(curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
-					curr_sb=curr_sb->next) {
-				/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
-				prev_sb=curr_sb;
-			}
 			/* Block allocation*/
 			if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
 				BlockHeader * temp_block;
@@ -270,7 +273,6 @@ void * malloc_init (size_t sz) {
 	real_malloc=malloc_work;
 	return ((*real_malloc)(sz)); /* Run the actual allocation function*/
 
-	mem_pool_init(SUPERBLOCK_SIZE); /* get a superblock for headers*/
 }
 
 void * malloc (size_t sz) {
