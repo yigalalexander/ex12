@@ -34,13 +34,6 @@
 void * malloc_init (size_t sz);
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
 
-struct MemPool {
-	void * pool=NULL;
-	unsigned int free=0;
-	unsigned int total_size=0;
-
-} int_mem_pool;
-
 typedef struct sblockheader {
 	int is_used;
 	void * addr;
@@ -51,18 +44,12 @@ typedef struct sblockheader {
 	struct sblockheader * next;
 } BlockHeader;
 
-
 typedef struct sblocklist {
 	BlockHeader * head;
 	BlockHeader * tail;
 	int count; /* Number of block currently in the list*/
 } BlockList;
 
-
-/* Small header for */
-typedef struct MiniBlockHeader {
-	BlockHeader * block;
-};
 
 typedef struct ssuperblock {
 	int num_blocks;
@@ -86,8 +73,6 @@ typedef struct ssizeclass {
 
 	unsigned int mSize;
 	pthread_mutex_t mutex;
-	size_t total_size;
-	size_t total_used;
 	SuperBlockList super_blocks_list;
 
 } SizeClass;
@@ -100,6 +85,8 @@ typedef struct sCPUHeap {
 * sizeClasses - array of size classes
 * */
 	unsigned int CPUid;
+	size_t total_size;
+	size_t total_used;
 	SizeClass sizeClasses[NUM_SIZE_CLASSES];
 
 } MemHeap;
@@ -131,11 +118,26 @@ void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
 	return p;
 }
 
+/* Scans a given heap for a suitable SuperBlock */
+void * scan_heap (MemHeap * heap,size_t sz) {
+	SuperBlock * curr_sb;
+	SuperBlock * prev_sb;
+	int relevant_class=(int)ceil(log2(sz));
+	SizeClass * curr_class=&( hoard.mHeaps[curr_cpu].sizeClasses[relevant_class] );
+
+	prev_sb=curr_class->super_blocks_list.tail;
+
+}
 
 void * malloc_work (size_t sz) {
 	DBG_ENTRY
 	/* NOTES
 	 * to allocate for a size class (SUPERBLOCK_SIZE/sizeclass)*sizeof(header)+SUPERBLOCK_SIZE
+	 *
+	 * TODO scan_heap (returns a free super block or NULL)
+	 * TODO alloc from superblock
+	 * TODO add_super_block_to_heap
+
 	 * */
 
 	pthread_t self_tid;
@@ -156,7 +158,7 @@ void * malloc_work (size_t sz) {
 			return (p + sizeof(BlockHeader));
 
 		} else {
-			/* TODO when getting a super block for chopping  need to init the mutext*/
+			/* TODO when getting a super block for chopping  need to init the mutex*/
 			int curr_cpu = HASH(self_tid); /* 2. i ← hash(the current thread).*/
 			int relevant_class=(int)ceil(log2(sz));
 
@@ -176,6 +178,8 @@ void * malloc_work (size_t sz) {
 				pthread_mutex_lock( &( heap_to_scan->sizeClasses[relevant_class].mutex ) ); /* Going to use the global heap - need to lock the size class there too*/
 			}
 
+			scan_heap(heap_to_scan,sz);
+
 			prev_sb=curr_class->super_blocks_list.tail;
 
 			for (curr_sb=curr_class->super_blocks_list.head;
@@ -184,7 +188,7 @@ void * malloc_work (size_t sz) {
 				/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
 				prev_sb=curr_sb;
 			}
-
+			/* Block allocation*/
 			if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
 				BlockHeader * temp_block;
 
@@ -239,34 +243,6 @@ void * malloc_work (size_t sz) {
 	return NULL;/*cannot satisfy request*/
 
 }
-
-/* Add memory for the internal memory pool*/
-void mem_pool_init(size_t sz) {
-
-	int_mem_pool.pool=fetch_os_memory(sz,0,0);
-	int_mem_pool.free=sz;
-	int_mem_pool.total_size=int_mem_pool.total_size+sz;
-
-}
-
-/* Get memory from the internal memory pool - increase pool if needed*/
-void * mem_pool_alloc(size_t sz) {
-	void * p;
-
-	if (sz>int_mem_pool.free) { /* need more memory added to the pool*/
-
-		if (free>0) { /* still have some bytes left, return them */
-			munmap(int_mem_pool.pool,int_mem_pool.free);
-			int_mem_pool.total_size-=int_mem_pool.free;
-		}
-		mem_pool_init(SUPERBLOCK_SIZE); /* add more memory to the pool */
-	}
-	p=int_mem_pool.pool;
-	int_mem_pool.pool=int_mem_pool.pool+sz; /* advance the pool pointer*/
-	int_mem_pool.free=int_mem_pool.free-sz; /* update free space */
-	return p;
-}
-
 
 /*
  * This function should only run once.
