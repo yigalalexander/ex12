@@ -21,6 +21,7 @@
 #define DBG_ENTRY printf("\n[%d]: --> %s", __LINE__,__FUNCTION__);
 #define DBG_EXIT printf("\n[%d]: <-- %s", __LINE__,__FUNCTION__);
 
+/* Constants */
 #define NUM_SIZE_CLASSES 16
 #define CPU_COUNT 2
 #define GLOBAL_HEAP CPU_COUNT
@@ -31,7 +32,7 @@
 #define HASH(A) ((A)%CPU_COUNT)
 #define abrt(X) perror(X); exit(0);
 
-void * malloc_init (size_t sz);
+void * malloc_init (size_t sz); /* Initialization function prototype */
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
 
 typedef struct sblockheader {
@@ -95,27 +96,44 @@ static struct sHoard {
 	MemHeap mHeaps[CPU_COUNT+1]; // 2 CPUs, and the last one is the global
 } hoard;
 
-void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
+void * allocate_from_superblock (SuperBlock * source, size_t sz) {
+	/* TODO */
+	if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
+					BlockHeader * temp_block;
 
-	DBG_ENTRY
-	int fd;
-	void *p;
-	size_t total_to_alloc;
+					temp_block=curr_sb->blocks.head;
 
-	fd = open("/dev/zero", O_RDWR);
-	if (fd == -1){
-		abrt("Memory allocation from OS failed");
-	}
-	total_to_alloc=sz+(segments*header_size);
+					if (curr_sb->num_free_blocks>1) { /*If there is more than one */
 
-	p = mmap(0, total_to_alloc, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
-	close(fd);
+						curr_sb->blocks.tail->next = curr_sb->blocks.head->next;// connect tail with new head (next)
+						curr_sb->blocks.head->prev = curr_sb->blocks.tail;// connect new head with tail (prev)
+						curr_sb->blocks.head = curr_sb->blocks.head->next;// update new head
 
-	if (p == MAP_FAILED){
-		abrt("OS failed to allocate memory");
-	}
-	DBG_EXIT
-	return p;
+					} else { /* Single Block available */
+						curr_sb->blocks.head=NULL;
+						curr_sb->blocks.head=NULL;
+					}
+
+					curr_sb->blocks.count--;
+					curr_sb->num_free_blocks--;// decrease num of free blocks on the superblock
+					curr_class->total_used = curr_class->total_used + temp_block->size;// update statistics
+
+					return (temp_block->addr);// return pointer
+
+				}
+
+}
+
+SuperBlock * add_super_block_to_heap (MemHeap * heap, int class) {
+	/* TODO Add chopping function*/
+}
+
+void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb){
+	/* TODO */
+}
+
+void update_stats(MemHeap * heap, int delta) {
+	/* TODO */
 }
 
 /* Scans a given heap for a suitable SuperBlock */
@@ -141,16 +159,36 @@ SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
 
 }
 
+void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
+
+	DBG_ENTRY
+	int fd;
+	void *p;
+	size_t total_to_alloc;
+
+	fd = open("/dev/zero", O_RDWR);
+	if (fd == -1){
+		abrt("Memory allocation from OS failed");
+	}
+	total_to_alloc=sz+(segments*header_size);
+
+	p = mmap(0, total_to_alloc, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	close(fd);
+
+	if (p == MAP_FAILED){
+		abrt("OS failed to allocate memory");
+	}
+	DBG_EXIT
+	return p;
+}
+
+
+
 void * malloc_work (size_t sz) {
 	DBG_ENTRY
 	/* NOTES
-	 * to allocate for a size class (SUPERBLOCK_SIZE/sizeclass)*sizeof(header)+SUPERBLOCK_SIZE
-	 *
-	 * TODO scan_heap (returns a free super block or NULL)
-	 * TODO alloc from superblock
-	 * TODO add_super_block_to_heap
+	 * to allocate for a size class (SUPERBLOCK_SIZE/sizeclass)*sizeof(header)+SUPERBLOCK_SIZE*/
 
-	 * */
 
 	pthread_t self_tid;
 	SuperBlock * source_sb; /* SuperBlock to take from */
@@ -174,58 +212,31 @@ void * malloc_work (size_t sz) {
 
 		} else {
 			/* TODO when getting a super block for chopping  need to init the mutex*/
-			int curr_cpu = HASH(self_tid); /* 2. i ← hash(the current thread).*/
+			int thread_heap = HASH(self_tid); /* 2. i ← hash(the current thread).*/
 			int relevant_class=(int)ceil(log2(sz));
 
 			/* relevant size class */
 
-			pthread_mutex_lock( &(hoard.mHeaps[curr_cpu].sizeClasses.mutex) ); /* 3. Lock heap relevant size class in relevant heap */
+			pthread_mutex_lock( &(hoard.mHeaps[thread_heap].sizeClasses.mutex) ); /* 3. Lock heap relevant size class in relevant heap */
 
-			MemHeap * heap_to_scan; /* Pointer to the heap to look in */
-
-			source_sb=scan_heap( &( hoard.mHeaps[curr_cpu] ) ,relevant_class);/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
+			source_sb=scan_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class);/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
 			if ( source_sb != NULL) {
-
-				pthread_mutex_lock( &(hoard.mHeaps[curr_cpu].sizeClasses.mutex) ); /* Lock global heap */
-				source_sb=scan_heap( &( hoard.mHeaps[GLOBAL_HEAP] ) ,relevant_class); /* Scan the global heap as we did not find a super block in the CPU heap*/
-
-			}
-
-			/* Block allocation*/
-			if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
-				BlockHeader * temp_block;
-
-				temp_block=curr_sb->blocks.head;
-
-				if (curr_sb->num_free_blocks>1) { /*If there is more than one */
-
-					curr_sb->blocks.tail->next = curr_sb->blocks.head->next;// connect tail with new head (next)
-					curr_sb->blocks.head->prev = curr_sb->blocks.tail;// connect new head with tail (prev)
-					curr_sb->blocks.head = curr_sb->blocks.head->next;// update new head
-
-				} else { /* Single Block available */
-					curr_sb->blocks.head=NULL;
-					curr_sb->blocks.head=NULL;
-				}
-
-				curr_sb->blocks.count--;
-				curr_sb->num_free_blocks--;// decrease num of free blocks on the superblock
-				curr_class->total_used = curr_class->total_used + temp_block->size;// update statistics
-
-				return (temp_block->addr);// return pointer
+				DBG_MSG("Locking global heap\n");
+				pthread_mutex_lock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses.mutex) ); /* Lock global heap */
+				source_sb=scan_heap( &( hoard.mHeaps[GLOBAL_HEAP] ) ,relevant_class); /* 6. Check heap 0 (the global heap) for a superblock.*/
 
 			}
 
-			/* Else need to add a super block  do nothing we will get to next block of code*/
-			/* Need to add a superblock 5. If there is no superblock with free space, */
-			/*
-				6. Check heap 0 (the global heap) for a superblock.
-							7. If there is none,
-							8. Allocate S bytes as superblock s and set the owner to heap i.
-							9. Else,
-							10. Transfer the superblock s to heap i. */
-			/* TODO Add chopping function*/
-			/*
+			if (source_sb==NULL) {
+				DBG_MSG("Unlocking global heap\n");
+				pthread_mutex_unlock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses.mutex) ); /* release the global heap, we don't need it */
+				source_sb=add_super_block_to_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class); /*8. Allocate S bytes as superblock s and set the owner to heap i.*/
+			} else {
+				move_superblock( &(hoard.mHeaps[GLOBAL_HEAP]), hoard.mHeaps[thread_heap] ,source_sb); /* 10. Transfer the superblock s to heap i. */
+			}
+
+			update_stats(&( hoard.mHeaps[thread_heap] ),sz); /* TODO should I be calling it like that? */
+	/*
 					11. u 0 ← u 0 − s.u
 					12. u i ← u i + s.u
 					13. a 0 ← a 0 − S
@@ -233,13 +244,10 @@ void * malloc_work (size_t sz) {
 					15. u i ← u i + sz.
 					16. s.u ← s.u + sz.
 			 */
+			p=allocate_from_superblock(source_sb,sz);
+			pthread_mutex_unlock( &(hoard.mHeaps[thread_heap].sizeClasses.mutex) ); //17. Unlock heap i.
+			return p; //18. Return a block from the superblock.
 		}
-		/*
-
-		 */
-
-		//17. Unlock heap i.
-		//18. Return a block from the superblock.
 	}
 
 	DBG_EXIT
