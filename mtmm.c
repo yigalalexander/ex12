@@ -36,8 +36,7 @@ void * malloc_init (size_t sz); /* Initialization function prototype */
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
 
 typedef struct sblockheader {
-	int is_used;
-	void * addr;
+	void * raw_mem;
 	unsigned int size;
 
 	struct sblockheader * parent_super_block;
@@ -53,13 +52,13 @@ typedef struct sblocklist {
 
 
 typedef struct ssuperblock {
-	int num_blocks;
+
 	int num_free_blocks;
-	BlockList blocks;
+	BlockList blocks; /* Ordered list of block composing the Superblock*/
 	pthread_mutex_t mutex;
 	void * raw_mem;
 
-	void * heap;
+	void * parent_heap; /* Parent heap*/
 	struct ssuperblock * prev;
 	struct ssuperblock * next;
 } SuperBlock;
@@ -97,35 +96,76 @@ static struct sHoard {
 } hoard;
 
 void * allocate_from_superblock (SuperBlock * source, size_t sz) {
-	/* TODO */
-	if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
-					BlockHeader * temp_block;
 
-					temp_block=curr_sb->blocks.head;
+	if (source->num_free_blocks>0) { /* if there is a free block allocate it */
+		BlockHeader * temp_block;
 
-					if (curr_sb->num_free_blocks>1) { /*If there is more than one */
+		temp_block=source->blocks.head;
 
-						curr_sb->blocks.tail->next = curr_sb->blocks.head->next;// connect tail with new head (next)
-						curr_sb->blocks.head->prev = curr_sb->blocks.tail;// connect new head with tail (prev)
-						curr_sb->blocks.head = curr_sb->blocks.head->next;// update new head
+		if (source->num_free_blocks>1) { /*If there is more than one */
 
-					} else { /* Single Block available */
-						curr_sb->blocks.head=NULL;
-						curr_sb->blocks.head=NULL;
-					}
+			source->blocks.tail->next = source->blocks.head->next;// connect tail with new head (next)
+			source->blocks.head->prev = source->blocks.tail;// connect new head with tail (prev)
+			source->blocks.head = source->blocks.head->next;// update new head
 
-					curr_sb->blocks.count--;
-					curr_sb->num_free_blocks--;// decrease num of free blocks on the superblock
-					curr_class->total_used = curr_class->total_used + temp_block->size;// update statistics
+		} else { /* Single Block available */
+			source->blocks.head=NULL;
+			source->blocks.head=NULL;
+		}
 
-					return (temp_block->addr);// return pointer
+		source->blocks.count--;
+		source->num_free_blocks--;// decrease num of free blocks on the superblock
 
-				}
-
+		return (temp_block->raw_mem);// return pointer
+	}
+	return NULL;
 }
 
-SuperBlock * add_super_block_to_heap (MemHeap * heap, int class) {
-	/* TODO Add chopping function*/
+SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
+
+	void * temp;
+	void * raw_mem_pos;
+	BlockHeader * prev_block_pos;
+	int max_blocks;
+	int i;
+	size_t block_size;
+	int class_block_size=((int)pow(2,class));
+
+	temp=fetch_os_memory(SUPERBLOCK_SIZE);
+	SuperBlock * new_sb=((SuperBlock *) temp);
+	block_size=class_block_size+sizeof(BlockHeader);
+
+	new_sb->blocks.head=NULL;
+	new_sb->blocks.tail=NULL;
+	new_sb->raw_mem=temp+sizeof(SuperBlock); /* Starting point of blocks */
+	new_sb->next=NULL;
+	new_sb->prev=NULL;
+	new_sb->parent_heap=NULL;
+
+
+	/* Number of block the size of sizeclass with a header in the remaining space after removing the SuperBlock header*/
+	max_blocks=( (SUPERBLOCK_SIZE-sizeof(SuperBlock)) / block_size );
+	new_sb->blocks.count=max_blocks;
+
+	prev_block_pos=raw_mem_pos=new_sb->raw_mem;
+
+
+	for (i=1; i<=max_blocks; i++) {
+		((BlockHeader *)new_sb->raw_mem)->parent_super_block=new_sb;//add the new block as a pointer to block_pos;
+		((BlockHeader *)new_sb->raw_mem)->raw_mem=raw_mem_pos+sizeof(BlockHeader); // set the pointer for the Block raw memory
+		((BlockHeader *)new_sb->raw_mem)->size=class_block_size;
+		((BlockHeader *)new_sb->raw_mem)->next=raw_mem_pos+block_size;
+		((BlockHeader *)new_sb->raw_mem)->prev=prev_block_pos;
+
+		prev_block_pos=raw_mem_pos;//advance prev_block_pos
+		raw_mem_pos += block_size;//increase raw_mem_pos;
+
+	}
+	new_sb->blocks.head=(BlockHeader *)new_sb->raw_mem;
+	new_sb->blocks.head=(BlockHeader *)raw_mem_pos;//connect the tail;
+
+	return (SuperBlock *)temp;
+
 }
 
 void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb){
@@ -159,7 +199,7 @@ SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
 
 }
 
-void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
+void * fetch_os_memory(size_t sz) {
 
 	DBG_ENTRY
 	int fd;
@@ -170,7 +210,7 @@ void * fetch_os_memory(size_t sz, size_t header_size, unsigned int segments) {
 	if (fd == -1){
 		abrt("Memory allocation from OS failed");
 	}
-	total_to_alloc=sz+(segments*header_size);
+	total_to_alloc=sz;
 
 	p = mmap(0, total_to_alloc, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
 	close(fd);
@@ -189,12 +229,9 @@ void * malloc_work (size_t sz) {
 	/* NOTES
 	 * to allocate for a size class (SUPERBLOCK_SIZE/sizeclass)*sizeof(header)+SUPERBLOCK_SIZE*/
 
-
 	pthread_t self_tid;
 	SuperBlock * source_sb; /* SuperBlock to take from */
 	void *p;
-
-
 
 	if (sz>=1) { /* valid size */
 
@@ -202,7 +239,7 @@ void * malloc_work (size_t sz) {
 
 			DBG_MSG("Requested size exceeds half super block");
 
-			p=fetch_os_memory(sz+sizeof(BlockHeader),0,0);
+			p=fetch_os_memory(sz+sizeof(BlockHeader));
 
 			((BlockHeader *) p)->size = sz;
 			((BlockHeader *) p)->next=NULL;
@@ -230,13 +267,13 @@ void * malloc_work (size_t sz) {
 			if (source_sb==NULL) {
 				DBG_MSG("Unlocking global heap\n");
 				pthread_mutex_unlock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses.mutex) ); /* release the global heap, we don't need it */
-				source_sb=add_super_block_to_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class); /*8. Allocate S bytes as superblock s and set the owner to heap i.*/
+				source_sb=add_superblock_to_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class); /*8. Allocate S bytes as superblock s and set the owner to heap i.*/
 			} else {
 				move_superblock( &(hoard.mHeaps[GLOBAL_HEAP]), hoard.mHeaps[thread_heap] ,source_sb); /* 10. Transfer the superblock s to heap i. */
 			}
 
 			update_stats(&( hoard.mHeaps[thread_heap] ),sz); /* TODO should I be calling it like that? */
-	/*
+	/*				Statistics calc
 					11. u 0 ← u 0 − s.u
 					12. u i ← u i + s.u
 					13. a 0 ← a 0 − S
