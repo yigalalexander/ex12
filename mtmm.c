@@ -54,7 +54,9 @@ typedef struct sblocklist {
 typedef struct ssuperblock {
 
 	int num_free_blocks;
+	int num_total_blocks;
 	BlockList blocks; /* Ordered list of block composing the Superblock*/
+	int block_size;
 	pthread_mutex_t mutex;
 	void * raw_mem;
 
@@ -178,18 +180,28 @@ SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 		target_list->tail=target_list->head=new_sb; //add it as both the head and the tail
 	}
 
+	/*update counters*/
+	update_heap_stats(heap,SUPERBLOCK_SIZE,0);
+	new_sb->num_total_blocks=max_blocks;
+	new_sb->block_size=class_block_size;
+
 	DBG_EXIT
 	return new_sb;
 
 }
 
-void move_superblock (SizeClass * source, SizeClass * target, SuperBlock * sb){
+void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
 
 	DBG_ENTRY
 
 	SuperBlockList * src_list;
 	SuperBlockList * trg_list;
 	SuperBlock * temp;
+
+
+	/*relevant lists to work on */
+	src_list=&(source->sizeClasses[class].super_blocks_list);
+	trg_list=&(source->sizeClasses[class].super_blocks_list);
 
 	/* Remove from the old list*/
 	if (sb->next != NULL)
@@ -207,15 +219,23 @@ void move_superblock (SizeClass * source, SizeClass * target, SuperBlock * sb){
 	if (trg_list->head==NULL)
 		trg_list->head=sb;//if the head is NULL-we are the head
 
-	/*update counters*/
+	/* Update Parent heap */
+	sb->parent_heap=target;
 
+	/*update counters*/
+	update_heap_stats(source,(-SUPERBLOCK_SIZE),(-(sb->num_total_blocks - sb->num_free_blocks)*(sb->block_size)));
+	update_heap_stats(target,SUPERBLOCK_SIZE, (sb->num_total_blocks - sb->num_free_blocks)*(sb->block_size));
 
 	DBG_ENTRY
 
 }
 
-void update_stats(MemHeap * heap, int delta) {
-	/* TODO */
+/* Updates stats of Heap - adds the delta, negative value can be passed
+ * Assumes that only the locking thread will call this function
+ * */
+void update_heap_stats(MemHeap * heap, int total_delta, int used_delta) {
+	heap->total_used+=used_delta;
+	heap->total_size+=total_delta;
 }
 
 /* Scans a given heap for a suitable SuperBlock */
@@ -311,7 +331,9 @@ void * malloc_work (size_t sz) {
 				pthread_mutex_unlock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses.mutex) ); /* release the global heap, we don't need it */
 				source_sb=add_superblock_to_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class); /*8. Allocate S bytes as superblock s and set the owner to heap i.*/
 			} else {
-				move_superblock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class]), &(hoard.mHeaps[thread_heap].sizeClasses[relevant_class]) ,source_sb); /* 10. Transfer the superblock s to heap i. */
+				move_superblock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class]),
+								&(hoard.mHeaps[thread_heap].sizeClasses[relevant_class]) ,
+								source_sb, relevant_class); /* 10. Transfer the superblock s to heap i. */
 			}
 
 			update_stats(&( hoard.mHeaps[thread_heap] ),sz); /* TODO should I be calling it like that? */
