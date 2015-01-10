@@ -122,54 +122,96 @@ void * allocate_from_superblock (SuperBlock * source, size_t sz) {
 }
 
 SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
-
+	DBG_ENTRY
+	/* variables*/
 	void * temp;
-	void * raw_mem_pos;
+	BlockHeader * raw_mem_pos;
 	BlockHeader * prev_block_pos;
 	int max_blocks;
 	int i;
 	size_t block_size;
+	SuperBlockList * target_list;
 	int class_block_size=((int)pow(2,class));
 
 	temp=fetch_os_memory(SUPERBLOCK_SIZE);
 	SuperBlock * new_sb=((SuperBlock *) temp);
 	block_size=class_block_size+sizeof(BlockHeader);
 
+	/* Init the superblock header*/
 	new_sb->blocks.head=NULL;
 	new_sb->blocks.tail=NULL;
 	new_sb->raw_mem=temp+sizeof(SuperBlock); /* Starting point of blocks */
 	new_sb->next=NULL;
 	new_sb->prev=NULL;
-	new_sb->parent_heap=NULL;
+	new_sb->parent_heap=heap;
 
 
 	/* Number of block the size of sizeclass with a header in the remaining space after removing the SuperBlock header*/
 	max_blocks=( (SUPERBLOCK_SIZE-sizeof(SuperBlock)) / block_size );
 	new_sb->blocks.count=max_blocks;
 
-	prev_block_pos=raw_mem_pos=new_sb->raw_mem;
+	prev_block_pos=raw_mem_pos=(BlockHeader *)new_sb->raw_mem;
 
-
+	/* Chop the superblock into blocks */
 	for (i=1; i<=max_blocks; i++) {
-		((BlockHeader *)new_sb->raw_mem)->parent_super_block=new_sb;//add the new block as a pointer to block_pos;
-		((BlockHeader *)new_sb->raw_mem)->raw_mem=raw_mem_pos+sizeof(BlockHeader); // set the pointer for the Block raw memory
-		((BlockHeader *)new_sb->raw_mem)->size=class_block_size;
-		((BlockHeader *)new_sb->raw_mem)->next=raw_mem_pos+block_size;
-		((BlockHeader *)new_sb->raw_mem)->prev=prev_block_pos;
+		((BlockHeader *)raw_mem_pos)->parent_super_block=new_sb;//add the new block as a pointer to block_pos;
+		((BlockHeader *)raw_mem_pos)->raw_mem=raw_mem_pos+sizeof(BlockHeader); // set the pointer for the Block raw memory
+		((BlockHeader *)raw_mem_pos)->size=class_block_size;
+		((BlockHeader *)raw_mem_pos)->next=(BlockHeader *)(raw_mem_pos+block_size);
+		((BlockHeader *)raw_mem_pos)->prev=prev_block_pos;
 
-		prev_block_pos=raw_mem_pos;//advance prev_block_pos
+		prev_block_pos=(BlockHeader *)raw_mem_pos;//advance prev_block_pos
 		raw_mem_pos += block_size;//increase raw_mem_pos;
 
 	}
+	/* Connect to block list struct*/
 	new_sb->blocks.head=(BlockHeader *)new_sb->raw_mem;
-	new_sb->blocks.head=(BlockHeader *)raw_mem_pos;//connect the tail;
+	new_sb->blocks.tail=(BlockHeader *)raw_mem_pos;//connect the tail;
 
-	return (SuperBlock *)temp;
+	/* Connect the superblock to the heap*/
+	target_list=&(heap->sizeClasses[class].super_blocks_list);
+	if ( target_list->count > 0 ) { 				//if it has blocks
+		target_list->tail->next=new_sb;				//add as the next of the tail.
+		new_sb->prev=target_list->tail;				//updated the prev pointer
+		target_list->tail=new_sb;					//change the tail
+	} else {
+		target_list->tail=target_list->head=new_sb; //add it as both the head and the tail
+	}
+
+	DBG_EXIT
+	return new_sb;
 
 }
 
-void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb){
-	/* TODO */
+void move_superblock (SizeClass * source, SizeClass * target, SuperBlock * sb){
+
+	DBG_ENTRY
+
+	SuperBlockList * src_list;
+	SuperBlockList * trg_list;
+	SuperBlock * temp;
+
+	/* Remove from the old list*/
+	if (sb->next != NULL)
+		(sb->next)->prev=sb->prev;// if we have a next - set its prev to be our prev
+	if (sb->prev!= NULL)
+		(sb->prev)->next=sb->next;// if we have a prev - set it to be our next
+	if (src_list->tail == sb)
+		src_list->tail=sb->prev;// if we are the tail - set the tail our prev
+	if (src_list->head == sb)
+		src_list->head=sb->next;// if we are the head - set the head to be our next
+
+	/* Add it to the new list*/
+	sb->prev=trg_list->tail;//set the tail to be our prev
+	trg_list->tail=sb;//update the tail to be us
+	if (trg_list->head==NULL)
+		trg_list->head=sb;//if the head is NULL-we are the head
+
+	/*update counters*/
+
+
+	DBG_ENTRY
+
 }
 
 void update_stats(MemHeap * heap, int delta) {
@@ -199,6 +241,7 @@ SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
 
 }
 
+/* Fetches a superblock from the OS - aborts the program on failure*/
 void * fetch_os_memory(size_t sz) {
 
 	DBG_ENTRY
@@ -248,7 +291,6 @@ void * malloc_work (size_t sz) {
 			return (p + sizeof(BlockHeader));
 
 		} else {
-			/* TODO when getting a super block for chopping  need to init the mutex*/
 			int thread_heap = HASH(self_tid); /* 2. i ← hash(the current thread).*/
 			int relevant_class=(int)ceil(log2(sz));
 
@@ -269,7 +311,7 @@ void * malloc_work (size_t sz) {
 				pthread_mutex_unlock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses.mutex) ); /* release the global heap, we don't need it */
 				source_sb=add_superblock_to_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class); /*8. Allocate S bytes as superblock s and set the owner to heap i.*/
 			} else {
-				move_superblock( &(hoard.mHeaps[GLOBAL_HEAP]), hoard.mHeaps[thread_heap] ,source_sb); /* 10. Transfer the superblock s to heap i. */
+				move_superblock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class]), &(hoard.mHeaps[thread_heap].sizeClasses[relevant_class]) ,source_sb); /* 10. Transfer the superblock s to heap i. */
 			}
 
 			update_stats(&( hoard.mHeaps[thread_heap] ),sz); /* TODO should I be calling it like that? */
@@ -307,8 +349,6 @@ void * malloc_init (size_t sz) {
 				abrt("Initialization failed.\n"); /* If mutex init fails */
 			}
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].mSize=(int)pow(2,idx_class);
-			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].total_used=0;
-			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].total_size=0;
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.count=0;
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.head=NULL;
 			hoard.mHeaps[idx_cpu].sizeClasses[idx_class].super_blocks_list.tail=NULL;
