@@ -34,12 +34,14 @@
 
 void * malloc_init (size_t sz); /* Initialization function prototype */
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
+typedef struct ssuperblock SuperBlock;
+typedef struct sCPUHeap MemHeap;
 
 typedef struct sblockheader {
 	void * raw_mem;
 	unsigned int size;
 
-	struct sblockheader * parent_super_block;
+	SuperBlock * parent_super_block;
 	struct sblockheader * prev;
 	struct sblockheader * next;
 } BlockHeader;
@@ -60,7 +62,7 @@ typedef struct ssuperblock {
 	pthread_mutex_t mutex;
 	void * raw_mem;
 
-	void * parent_heap; /* Parent heap*/
+	MemHeap * parent_heap; /* Parent heap*/
 	struct ssuperblock * prev;
 	struct ssuperblock * next;
 } SuperBlock;
@@ -96,6 +98,10 @@ typedef struct sCPUHeap {
 static struct sHoard {
 	MemHeap mHeaps[CPU_COUNT+1]; // 2 CPUs, and the last one is the global
 } hoard;
+
+int size_to_class (int size) {
+	return (int)ceil(log2(size));
+}
 
 void * allocate_from_superblock (SuperBlock * source, size_t sz) {
 
@@ -188,6 +194,13 @@ SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	DBG_EXIT
 	return new_sb;
 
+}
+
+size_t get_block_size(void * ptr) {
+	if (ptr!=NULL) {
+		return ( ((BlockHeader *)(ptr-sizeof(BlockHeader)))->size );
+	}
+	return (-1);
 }
 
 void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
@@ -285,13 +298,22 @@ void * fetch_os_memory(size_t sz) {
 	return p;
 }
 
+void return_os_memory(void * ptr) {
+	DBG_ENTRY
+	if (ptr != NULL)
+	{
+		int size = ((BlockHeader *)(ptr - sizeof(BlockHeader))) -> size + sizeof(BlockHeader);
+		if (munmap(ptr - sizeof(BlockHeader), size) < 0)
+		{
+			abrt("Error releasing memory to OS");
+		}
 
+	}
+	DBG_EXIT
+}
 
 void * malloc_work (size_t sz) {
 	DBG_ENTRY
-	/* NOTES
-	 * to allocate for a size class (SUPERBLOCK_SIZE/sizeclass)*sizeof(header)+SUPERBLOCK_SIZE*/
-
 	pthread_t self_tid;
 	SuperBlock * source_sb; /* SuperBlock to take from */
 	void *p;
@@ -312,7 +334,7 @@ void * malloc_work (size_t sz) {
 
 		} else {
 			int thread_heap = HASH(self_tid); /* 2. i ← hash(the current thread).*/
-			int relevant_class=(int)ceil(log2(sz));
+			int relevant_class=size_to_class(sz);
 
 			/* relevant size class */
 
@@ -336,7 +358,7 @@ void * malloc_work (size_t sz) {
 								source_sb, relevant_class); /* 10. Transfer the superblock s to heap i. */
 			}
 
-			update_stats(&( hoard.mHeaps[thread_heap] ),sz); /* TODO should I be calling it like that? */
+			update_heap_stats(&( hoard.mHeaps[thread_heap] ),0,(-source_sb->block_size));
 	/*				Statistics calc
 					11. u 0 ← u 0 − s.u
 					12. u i ← u i + s.u
@@ -388,41 +410,72 @@ void * malloc (size_t sz) {
 
 }
 
-void free (void * ptr) {
-	/* free with munmap - to use when freeing a large block that was allocated directly with mmap*/
-	/*
+/*
 
+ * TODO sb_keeps_invariant
+ * TODO find_thin_sb
+
+ */
+
+void free (void * ptr) {
+	/*
 	The free() function frees the memory space pointed to by ptr, which must have been returned
 	by a previous call to malloc(), calloc() or realloc(). Otherwise, or if free(ptr) has already
 	been called before, undefined behavior occurs. If ptr is NULL, no operation is performed.
 
 
 	free (ptr)
-	1. If the block is “large”,
-	2. Free the superblock to the operating system and return.
-	3. Find the superblock s this block comes from and lock it.
-	4. Lock heap i, the superblock’s owner.
-	5. Deallocate the block from the superblock.
-	6. u i ← u i − block size.
-	7. s.u ← s.u − block size.
-	8. If i = 0, unlock heap i and the superblock and return.
-	9. If u i < a i − K ∗ S and u i < (1 − f) ∗ a i,
-	10. Transfer a mostly-empty superblock s1
-	to heap 0 (the global heap).
-	11. u 0 ← u 0 + s1.u, u i ← u i − s1.u
-	12. a 0 ← a 0 + S, a i ← a i − S
-	13. Unlock heap i and the superblock.
-	 */
-	if (ptr != NULL)
-	{
-		int size = ((BlockHeader *)(ptr - sizeof(BlockHeader))) -> size + sizeof(BlockHeader);
-		if (munmap(ptr - sizeof(BlockHeader), size) < 0)
-		{
-			perror(NULL);
-		}
+	,
 
+	 */
+	int relevant_class;
+	BlockHeader * ptr_as_block;
+	SuperBlock * ori_sb;	/* Origin superblock*/
+	MemHeap * origin_heap;	/* relevant heap */
+	SuperBlock * origin_sb; /* superblock from which this was allocated */
+	size_t ret_size; 		/* returned size */
+
+
+	if (ptr!=NULL){
+		if (get_block_size(ptr)-sizeof(BlockHeader) > BLOCK_LIMIT) { /*1. If the block is “large” */
+			return_os_memory(ptr); /* 2. Free the superblock to the operating system and return. return_os_memory */
+		} else {
+
+			/* Resolving of parent structs */
+			ptr_as_block=(BlockHeader *)ptr;
+			origin_sb=ptr_as_block->parent_super_block;
+			origin_heap=origin_sb->parent_heap;
+			ret_size=get_block_size(ptr);
+			relevant_class=size_to_class(ret_size);
+
+			/* Lock the mutex  */
+			pthread_mutex_lock(& (origin_heap->sizeClasses[relevant_class].mutex));
+			//return the block
+			//call update_heap_stats
+
+			// if relevant sizeclass on the global heap is empty - find a mostly empty block to return
+			// call move_superblock
+			// update_stats
+
+			/*
+
+			3. Find the superblock s this block comes from and lock it.
+			4. Lock heap i, the superblock’s owner.
+			5. Deallocate the block from the superblock. return_block_to_superblock
+			6. u i ← u i − block size. update
+			7. s.u ← s.u − block size.
+			8. If i = 0, unlock heap i and the superblock and return.
+			9. If u i < a i − K ∗ S and u i < (1 − f) ∗ a i,
+			10. Transfer a mostly-empty superblock s1
+			to heap 0 (the global heap).
+			11. u 0 ← u 0 + s1.u, u i ← u i − s1.u
+			12. a 0 ← a 0 + S, a i ← a i − S
+			13. Unlock heap i and the superblock.
+			 */
+		}
 	}
-	printf("myfree\n");
+
+
 
 }
 
