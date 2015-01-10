@@ -129,6 +129,15 @@ void * allocate_from_superblock (SuperBlock * source, size_t sz) {
 	return NULL;
 }
 
+void return_block_to_superblock (BlockHeader * block, SuperBlock * target) {
+	/* TODO implement*/
+	/* Use the code  from move_superblock*/
+}
+
+SuperBlock * find_thin_sb(SizeClass * ) {
+	/* TODO implement*/
+}
+
 SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	DBG_ENTRY
 	/* variables*/
@@ -343,7 +352,7 @@ void * malloc_work (size_t sz) {
 			source_sb=scan_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class);/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
 			if ( source_sb != NULL) {
 				DBG_MSG("Locking global heap\n");
-				pthread_mutex_lock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses.mutex) ); /* Lock global heap */
+				pthread_mutex_lock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class].mutex) ); /* Lock global heap */
 				source_sb=scan_heap( &( hoard.mHeaps[GLOBAL_HEAP] ) ,relevant_class); /* 6. Check heap 0 (the global heap) for a superblock.*/
 
 			}
@@ -418,32 +427,24 @@ void * malloc (size_t sz) {
  */
 
 void free (void * ptr) {
-	/*
-	The free() function frees the memory space pointed to by ptr, which must have been returned
-	by a previous call to malloc(), calloc() or realloc(). Otherwise, or if free(ptr) has already
-	been called before, undefined behavior occurs. If ptr is NULL, no operation is performed.
 
-
-	free (ptr)
-	,
-
-	 */
 	int relevant_class;
-	BlockHeader * ptr_as_block;
-	SuperBlock * ori_sb;	/* Origin superblock*/
+	BlockHeader * block_ptr;
+	SuperBlock * origin_sb,sb_to_return;	/* Origin superblock*/
 	MemHeap * origin_heap;	/* relevant heap */
 	SuperBlock * origin_sb; /* superblock from which this was allocated */
 	size_t ret_size; 		/* returned size */
 
 
 	if (ptr!=NULL){
-		if (get_block_size(ptr)-sizeof(BlockHeader) > BLOCK_LIMIT) { /*1. If the block is “large” */
+		block_ptr=(BlockHeader *)(ptr-sizeof(BlockHeader));
+		if ( ((block_ptr->size)-sizeof(BlockHeader)) > BLOCK_LIMIT) { /*1. If the block is “large” */
 			return_os_memory(ptr); /* 2. Free the superblock to the operating system and return. return_os_memory */
 		} else {
 
 			/* Resolving of parent structs */
-			ptr_as_block=(BlockHeader *)ptr;
-			origin_sb=ptr_as_block->parent_super_block;
+
+			origin_sb=block_ptr->parent_super_block;
 			origin_heap=origin_sb->parent_heap;
 			ret_size=get_block_size(ptr);
 			relevant_class=size_to_class(ret_size);
@@ -451,9 +452,17 @@ void free (void * ptr) {
 			/* Lock the mutex  */
 			pthread_mutex_lock(& (origin_heap->sizeClasses[relevant_class].mutex));
 			//return the block
+			return_block_to_superblock(block_ptr,origin_sb);
+
+			sb_to_return=find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
+			if (sb_to_return!=NULL){
+				pthread_mutex_lock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class].mutex) ); //lock global heap
+				move_superblock(origin_heap, &(hoard.mHeaps[GLOBAL_HEAP]),sb_to_return);
+			}
 			//call update_heap_stats
 
 			// if relevant sizeclass on the global heap is empty - find a mostly empty block to return
+			find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
 			// call move_superblock
 			// update_stats
 
