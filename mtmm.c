@@ -177,7 +177,6 @@ int sb_keeps_invariant(SuperBlock * sb) {
 SuperBlock * find_thin_sb(SizeClass * ) {
 	/* TODO implement*/
 	/* find invariant breaking sb*/
-<<<<<<< HEAD
 	SuperBlock * temp_sb;
 	
 	temp_sb=NULL;
@@ -187,8 +186,7 @@ SuperBlock * find_thin_sb(SizeClass * ) {
 	// if sb is not keeping invariant stop the loop and return it.
 	
 	return temp_sb;
-=======
->>>>>>> FETCH_HEAD
+
 }
 
 SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
@@ -497,50 +495,44 @@ void free (void * ptr) {
 			relevant_class=size_to_class(ret_size);
 
 			/* Lock the mutex  */
-<<<<<<< HEAD
-			pthread_mutex_lock( &(origin_heap->sizeClasses[relevant_class].mutex) ); /*   4. Lock heap i, the superblock’s owner.*/
-=======
+
+			/*   4. Lock heap i, the superblock’s owner.*/
 			pthread_mutex_lock( &(origin_heap->sizeClasses[relevant_class].mutex) ); /* 3. Find the superblock s this block comes from and lock it.*/
->>>>>>> FETCH_HEAD
-			
+
 			return_block_to_superblock(block_ptr,origin_sb); /*5. Deallocate the block from the superblock. */
-			
+
 			// if relevant sizeclass on the global heap is empty - find a mostly empty block to return
-			sb_to_return=find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
-			if (sb_to_return!=NULL){ /*10. Transfer a mostly-empty superblock s1 to heap 0 (the global heap). */
-				pthread_mutex_lock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class].mutex) ); //lock global heap
-				move_superblock(origin_heap, &(hoard.mHeaps[GLOBAL_HEAP]),sb_to_return);
+			if (origin_heap!=&(hoard.mHeaps[GLOBAL_HEAP])) {
+				sb_to_return=find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
+				if (sb_to_return!=NULL){ /*10. Transfer a mostly-empty superblock s1 to heap 0 (the global heap). */
+
+					pthread_mutex_lock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class].mutex) ); //If the block is not from the GLOBAL_HEAP lock global heap
+
+
+					move_superblock(origin_heap, &(hoard.mHeaps[GLOBAL_HEAP]),sb_to_return);
+				}
 			}
 			//call update_heap_stats
 
-			
+
 			find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
-<<<<<<< HEAD
-=======
 
-			// update_stats
->>>>>>> FETCH_HEAD
 
 			// update_stats
 			
 			/*
-			
-<<<<<<< HEAD
-			/*
-=======
-			4. Lock heap i, the superblock’s owner.
->>>>>>> FETCH_HEAD
-			
+
 			6. u i ← u i − block size. update
 			7. s.u ← s.u − block size.
 			8. If i = 0, unlock heap i and the superblock and return.
 			9. If u i < a i − K ∗ S and u i < (1 − f) ∗ a i,
-			
+
 			
 			11. u 0 ← u 0 + s1.u, u i ← u i − s1.u
 			12. a 0 ← a 0 + S, a i ← a i − S
 			13. Unlock heap i and the superblock.
 			 */
+
 		}
 	}
 
