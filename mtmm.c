@@ -43,7 +43,7 @@ typedef struct sCPUHeap MemHeap;
 /* Data structures */
 typedef struct sblockheader {
 	void * raw_mem;
-	unsigned int size;
+	size_t size;
 
 	SuperBlock * parent_super_block;
 	struct sblockheader * prev;
@@ -135,8 +135,33 @@ void * allocate_from_superblock (SuperBlock * source, size_t sz) {
 }
 
 void return_block_to_superblock (BlockHeader * block, SuperBlock * target) {
+	DBG_ENTRY
+	MemHeap * origin_heap;
+	origin_heap=target->parent_heap;
+	BlockList * trg_list=target->blocks;
+		
+	
+		/* Add it to the new list*/
+	block->prev=trg_list->tail;//set the tail to be our prev
+	trg_list->tail=block;//update the tail to be us
+	if (trg_list->head==NULL)
+		trg_list->head=block;//if the head is NULL-we are the head
+		
+	update_heap_stats(origin_heap,0,-( block->size));
+	target->num_free_blocks++;
+	DBG_EXIT
+}
+
+int sb_keeps_invariant(SuperBlock * sb) {
+	DBG_ENTRY
+	int result;
+	
+	
+	
 	/* TODO implement*/
-	/* Use the code  from move_superblock*/
+	
+	DBG_EXIT
+	return result;
 }
 
 int sb_keeps_invariant(SuperBlock * sb) {
@@ -152,6 +177,18 @@ int sb_keeps_invariant(SuperBlock * sb) {
 SuperBlock * find_thin_sb(SizeClass * ) {
 	/* TODO implement*/
 	/* find invariant breaking sb*/
+<<<<<<< HEAD
+	SuperBlock * temp_sb;
+	
+	temp_sb=NULL;
+	
+	//scan the list
+	//for each sb run sb_keeps_invariant
+	// if sb is not keeping invariant stop the loop and return it.
+	
+	return temp_sb;
+=======
+>>>>>>> FETCH_HEAD
 }
 
 SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
@@ -447,20 +484,24 @@ void free (void * ptr) {
 
 
 	if (ptr!=NULL){
-		block_ptr=(BlockHeader *)(ptr-sizeof(BlockHeader));
+			block_ptr=(BlockHeader *)(ptr-sizeof(BlockHeader));
 		if ( ((block_ptr->size)-sizeof(BlockHeader)) > BLOCK_LIMIT) { /*1. If the block is “large” */
 			return_os_memory(ptr); /* 2. Free the superblock to the operating system and return. return_os_memory */
 		} else {
 
 			/* Resolving of parent structs */
-
+			/* 3. Find the superblock s this block comes from and lock it, */
 			origin_sb=block_ptr->parent_super_block;
 			origin_heap=origin_sb->parent_heap;
 			ret_size=get_block_size(ptr);
 			relevant_class=size_to_class(ret_size);
 
 			/* Lock the mutex  */
+<<<<<<< HEAD
+			pthread_mutex_lock( &(origin_heap->sizeClasses[relevant_class].mutex) ); /*   4. Lock heap i, the superblock’s owner.*/
+=======
 			pthread_mutex_lock( &(origin_heap->sizeClasses[relevant_class].mutex) ); /* 3. Find the superblock s this block comes from and lock it.*/
+>>>>>>> FETCH_HEAD
 			
 			return_block_to_superblock(block_ptr,origin_sb); /*5. Deallocate the block from the superblock. */
 			
@@ -474,12 +515,21 @@ void free (void * ptr) {
 
 			
 			find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
+<<<<<<< HEAD
+=======
 
 			// update_stats
+>>>>>>> FETCH_HEAD
 
+			// update_stats
+			
 			/*
 			
+<<<<<<< HEAD
+			/*
+=======
 			4. Lock heap i, the superblock’s owner.
+>>>>>>> FETCH_HEAD
 			
 			6. u i ← u i − block size. update
 			7. s.u ← s.u − block size.
