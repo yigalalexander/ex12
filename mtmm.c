@@ -26,8 +26,8 @@
 #define CPU_COUNT 2
 #define GLOBAL_HEAP CPU_COUNT
 #define BLOCK_LIMIT SUPERBLOCK_SIZE/2
-#define K 0 /* Should it be 1 */
-#define F (1/4)
+#define K 0 /* Should it be 1 ??*/
+#define EMPTINESS_THRESHOLD (1/4) /* Emptiness threshold for a superblock*/
 
 #define HASH(A) ((A)%CPU_COUNT)
 #define abrt(X) perror(X); exit(0);
@@ -108,7 +108,7 @@ int size_to_class (int size) {
 	return (int)ceil(log2(size));
 }
 
-void * allocate_from_superblock (SuperBlock * source, size_t sz) {
+static void * allocate_from_superblock (SuperBlock * source, size_t sz) {
 
 	if (source->num_free_blocks>0) { /* if there is a free block allocate it */
 		BlockHeader * temp_block;
@@ -134,7 +134,7 @@ void * allocate_from_superblock (SuperBlock * source, size_t sz) {
 	return NULL;
 }
 
-void return_block_to_superblock (BlockHeader * block, SuperBlock * target) {
+static void return_block_to_superblock (BlockHeader * block, SuperBlock * target) {
 	DBG_ENTRY
 	MemHeap * origin_heap;
 	origin_heap=target->parent_heap;
@@ -147,24 +147,12 @@ void return_block_to_superblock (BlockHeader * block, SuperBlock * target) {
 	if (trg_list->head==NULL)
 		trg_list->head=block;//if the head is NULL-we are the head
 		
-	update_heap_stats(origin_heap,0,-( block->size));
+	update_heap_stats(origin_heap,0,(-1)*( block->size));
 	target->num_free_blocks++;
 	DBG_EXIT
 }
 
-int sb_keeps_invariant(SuperBlock * sb) {
-	DBG_ENTRY
-	int result;
-	
-	
-	
-	/* TODO implement*/
-	
-	DBG_EXIT
-	return result;
-}
-
-int sb_keeps_invariant(SuperBlock * sb) {
+int heap_keeps_invariant(MemHeap * sb) {
 	DBG_ENTRY
 	int result;
 	
@@ -174,22 +162,24 @@ int sb_keeps_invariant(SuperBlock * sb) {
 	return result;
 }
 
-SuperBlock * find_thin_sb(SizeClass * ) {
-	/* TODO implement*/
-	/* find invariant breaking sb*/
-	SuperBlock * temp_sb;
+static SuperBlock * find_thin_sb(SizeClass * sizeclass) {
+
+	SuperBlock * pos;
+
+	pos=sizeclass->super_blocks_list.head;
 	
-	temp_sb=NULL;
+	while (pos!=NULL) {
+		if ((pos->num_free_blocks / pos->num_total_blocks) > EMPTINESS_THRESHOLD ) { //for each sb check if free to total ratio meets threshold
+			return pos;
+		}
+	}
 	
-	//scan the list
-	//for each sb run sb_keeps_invariant
 	// if sb is not keeping invariant stop the loop and return it.
 	
-	return temp_sb;
-
+	return pos;
 }
 
-SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
+static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	DBG_ENTRY
 	/* variables*/
 	void * temp;
@@ -256,14 +246,14 @@ SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 
 }
 
-size_t get_block_size(void * ptr) {
+static size_t get_block_size(void * ptr) {
 	if (ptr!=NULL) {
 		return ( ((BlockHeader *)(ptr-sizeof(BlockHeader)))->size );
 	}
 	return (-1);
 }
 
-void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
+static void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
 
 	DBG_ENTRY
 
@@ -296,7 +286,7 @@ void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int c
 	sb->parent_heap=target;
 
 	/*update counters*/
-	update_heap_stats(source,(-SUPERBLOCK_SIZE),(-(sb->num_total_blocks - sb->num_free_blocks)*(sb->block_size)));
+	update_heap_stats(source,(-SUPERBLOCK_SIZE),((-1)*(sb->num_total_blocks - sb->num_free_blocks)*(sb->block_size)));
 	update_heap_stats(target,SUPERBLOCK_SIZE, (sb->num_total_blocks - sb->num_free_blocks)*(sb->block_size));
 
 	DBG_ENTRY
@@ -306,7 +296,7 @@ void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int c
 /* Updates stats of Heap - adds the delta, negative value can be passed
  * Assumes that only the locking thread will call this function
  * */
-void update_heap_stats(MemHeap * heap, int total_delta, int used_delta) {
+static void update_heap_stats(MemHeap * heap, int total_delta, int used_delta) {
 	heap->total_used+=used_delta;
 	heap->total_size+=total_delta;
 }
@@ -335,7 +325,7 @@ SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
 }
 
 /* Fetches a superblock from the OS - aborts the program on failure*/
-void * fetch_os_memory(size_t sz) {
+static void * fetch_os_memory(size_t sz) {
 
 	DBG_ENTRY
 	int fd;
@@ -358,7 +348,7 @@ void * fetch_os_memory(size_t sz) {
 	return p;
 }
 
-void return_os_memory(void * ptr) {
+static void return_os_memory(void * ptr) {
 	DBG_ENTRY
 	if (ptr != NULL)
 	{
@@ -373,7 +363,7 @@ void return_os_memory(void * ptr) {
 }
 
 /*  Main Functions  */
-void * malloc_work (size_t sz) {
+static void * malloc_work (size_t sz) {
 	DBG_ENTRY
 	pthread_t self_tid;
 	SuperBlock * source_sb; /* SuperBlock to take from */
@@ -443,7 +433,7 @@ void * malloc_work (size_t sz) {
  * This function should only run once.
  * It initializes the structs and then replaces the real_malloc pointer to be "malloc_work" - for the next calls
  */
-void * malloc_init (size_t sz) {
+static void * malloc_init (size_t sz) {
 
 	int idx_cpu=0;
 	for (idx_cpu=0; idx_cpu<=CPU_COUNT;idx_cpu++) { /* Init the CPU heaps*/
@@ -471,7 +461,7 @@ void * malloc (size_t sz) {
 
 }
 
-void free (void * ptr) {
+static void free (void * ptr) {
 
 	int relevant_class;
 	BlockHeader * block_ptr;
@@ -544,7 +534,7 @@ void * realloc (void * ptr, size_t sz) {
 	void * temp_dst;
 	
 	temp_dst=malloc(sz); /* Allocate more space*/
-	
+	/* TODO  check which size is bigger so we don't run over*/
 	if (temp_dst != NULL) { /* Was it successful? */
 	
 		if ( memcpy(temp_dst,ptr, get_block_size(ptr)) == temp_dst){ /* Try to copy */

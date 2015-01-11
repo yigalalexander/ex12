@@ -3,10 +3,27 @@ CC=gcc
 TARGET = linux-scalability
 
 MYFLAGS =  -g -O0 -Wall -m32 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free 
-MYLIBS = libmtmm.a
+
+# uncomment this to link with hoard memory allicator 
+#MYLIBS = libmtmm.a
+
+# uncomment this to link with simple memory allocator
+MYLIBS = libSimpleMTMM.a
+
+# uncomment this to link with standard memory allocator
+#MYLIBS = 
+
+
+all: libSimpleMTMM.a $(TARGET)
+
+libSimpleMTMM.a: 
+	$(CC) $(MYFLAGS) -c mtmm.c 
+	ar rcu libSimpleMTMM.a mtmm.o
+	ranlib libSimpleMTMM.a
+
 
 $(TARGET): $(TARGET).c
-	$(CC) $(CCFLAGS) $(MYFLAGS) $(MYLIBS) $(TARGET).c -o $(TARGET) -lpthread -lm
+	$(CC) $(CCFLAGS) $(MYFLAGS) $(MYLIBS) $(TARGET).c -o $(TARGET) -lpthread -lm -libSimpleMTMM
 
 clean:
-	rm -f $(TARGET) $(MYLIBS) *.o
+	rm -f $(TARGET)  *.o libSimpleMTMM.a
