@@ -34,9 +34,13 @@
 
 void * malloc_init (size_t sz); /* Initialization function prototype */
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
+
+/* Struct prototypes*/
 typedef struct ssuperblock SuperBlock;
 typedef struct sCPUHeap MemHeap;
 
+
+/* Data structures */
 typedef struct sblockheader {
 	void * raw_mem;
 	unsigned int size;
@@ -99,6 +103,7 @@ static struct sHoard {
 	MemHeap mHeaps[CPU_COUNT+1]; // 2 CPUs, and the last one is the global
 } hoard;
 
+/*  Auxiliary Functions  */
 int size_to_class (int size) {
 	return (int)ceil(log2(size));
 }
@@ -134,8 +139,19 @@ void return_block_to_superblock (BlockHeader * block, SuperBlock * target) {
 	/* Use the code  from move_superblock*/
 }
 
+int sb_keeps_invariant(SuperBlock * sb) {
+	DBG_ENTRY
+	int result;
+	
+	/* TODO implement*/
+	
+	DBG_EXIT
+	return result;
+}
+
 SuperBlock * find_thin_sb(SizeClass * ) {
 	/* TODO implement*/
+	/* find invariant breaking sb*/
 }
 
 SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
@@ -321,6 +337,7 @@ void return_os_memory(void * ptr) {
 	DBG_EXIT
 }
 
+/*  Main Functions  */
 void * malloc_work (size_t sz) {
 	DBG_ENTRY
 	pthread_t self_tid;
@@ -419,13 +436,6 @@ void * malloc (size_t sz) {
 
 }
 
-/*
-
- * TODO sb_keeps_invariant
- * TODO find_thin_sb
-
- */
-
 void free (void * ptr) {
 
 	int relevant_class;
@@ -450,33 +460,33 @@ void free (void * ptr) {
 			relevant_class=size_to_class(ret_size);
 
 			/* Lock the mutex  */
-			pthread_mutex_lock(& (origin_heap->sizeClasses[relevant_class].mutex));
-			//return the block
-			return_block_to_superblock(block_ptr,origin_sb);
-
+			pthread_mutex_lock( &(origin_heap->sizeClasses[relevant_class].mutex) ); /* 3. Find the superblock s this block comes from and lock it.*/
+			
+			return_block_to_superblock(block_ptr,origin_sb); /*5. Deallocate the block from the superblock. */
+			
+			// if relevant sizeclass on the global heap is empty - find a mostly empty block to return
 			sb_to_return=find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
-			if (sb_to_return!=NULL){
+			if (sb_to_return!=NULL){ /*10. Transfer a mostly-empty superblock s1 to heap 0 (the global heap). */
 				pthread_mutex_lock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class].mutex) ); //lock global heap
 				move_superblock(origin_heap, &(hoard.mHeaps[GLOBAL_HEAP]),sb_to_return);
 			}
 			//call update_heap_stats
 
-			// if relevant sizeclass on the global heap is empty - find a mostly empty block to return
+			
 			find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
-			// call move_superblock
+
 			// update_stats
 
 			/*
-
-			3. Find the superblock s this block comes from and lock it.
+			
 			4. Lock heap i, the superblock’s owner.
-			5. Deallocate the block from the superblock. return_block_to_superblock
+			
 			6. u i ← u i − block size. update
 			7. s.u ← s.u − block size.
 			8. If i = 0, unlock heap i and the superblock and return.
 			9. If u i < a i − K ∗ S and u i < (1 − f) ∗ a i,
-			10. Transfer a mostly-empty superblock s1
-			to heap 0 (the global heap).
+			
+			
 			11. u 0 ← u 0 + s1.u, u i ← u i − s1.u
 			12. a 0 ← a 0 + S, a i ← a i − S
 			13. Unlock heap i and the superblock.
@@ -489,5 +499,17 @@ void free (void * ptr) {
 }
 
 void * realloc (void * ptr, size_t sz) {
+	void * temp_dst;
+	
+	temp_dst=malloc(sz); /* Allocate more space*/
+	
+	if (temp_dst != NULL) { /* Was it successful? */
+	
+		if ( memcpy(temp_dst,ptr, get_block_size(ptr)) == temp_dst){ /* Try to copy */
+			free(ptr); /* release the old space/*/
+			return temp_dst;
+		
+		}
+	}
 	return NULL;
 }
