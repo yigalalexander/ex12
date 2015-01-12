@@ -529,23 +529,29 @@ static void free (void * ptr) {
 
 }
 
-void * realloc (void * ptr, size_t sz) {
+void * realloc (void * ptr, size_t new_size) {
 	void * temp_dst;
+	size_t copy_size,current_size; /* How much to actually copy*/
 
-	temp_dst=malloc(sz); /* Allocate more space*/
-	/* TODO  check which size is bigger so we don't run over*/
+	temp_dst=malloc(new_size); /* Allocate more space*/
 	if (temp_dst != NULL) { /* Was it successful? */
 
-		if (sz>0) {
-			if ( memcpy(temp_dst,ptr, get_block_size(ptr)) == temp_dst){ /* Try to copy */
+		if (new_size>0) {
+
+			current_size=get_block_size(ptr);
+			copy_size=( (new_size>current_size)?current_size:new_size );
+
+			if ( memcpy(temp_dst,ptr, copy_size) == temp_dst){ /* Try to copy */
 				free(ptr); /* release the old space/*/
 				return temp_dst;
-			} else { /* If size is 0 we need to free it.*/
-				free(ptr);
-			}
-		}
-	} else { /* space has never been allocated */
-		return malloc(sz);
-	}
+			} else
+				abrt("Failed to copy memory");
+
+		}else  /* If size is 0 we need to free it.*/
+			free(ptr);
+
+	} else /* space has never been allocated */
+		return temp_dst;
+
 	return NULL;
 }
