@@ -468,7 +468,7 @@ static void free (void * ptr) {
 	SuperBlock * origin_sb,sb_to_return;	/* Origin superblock*/
 	MemHeap * origin_heap;	/* relevant heap */
 	SuperBlock * origin_sb; /* superblock from which this was allocated */
-	size_t ret_size; 		/* returned size */
+	size_t returned_size; 		/* returned size */
 
 
 	if (ptr!=NULL){
@@ -481,8 +481,8 @@ static void free (void * ptr) {
 			/* 3. Find the superblock s this block comes from and lock it, */
 			origin_sb=block_ptr->parent_super_block;
 			origin_heap=origin_sb->parent_heap;
-			ret_size=get_block_size(ptr);
-			relevant_class=size_to_class(ret_size);
+			returned_size=get_block_size(ptr);
+			relevant_class=size_to_class(returned_size);
 
 			/* Lock the mutex  */
 
@@ -502,13 +502,12 @@ static void free (void * ptr) {
 					move_superblock(origin_heap, &(hoard.mHeaps[GLOBAL_HEAP]),sb_to_return);
 				}
 			}
-			//call update_heap_stats
+			update_heap_stats(origin_heap,0,(-1)*(returned_size));
 
-
+			//check if the heap keeps the invariant
+			// if not - find a thin SB to move to the global
 			find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
 
-
-			// update_stats
 			
 			/*
 
@@ -532,16 +531,21 @@ static void free (void * ptr) {
 
 void * realloc (void * ptr, size_t sz) {
 	void * temp_dst;
-	
+
 	temp_dst=malloc(sz); /* Allocate more space*/
 	/* TODO  check which size is bigger so we don't run over*/
 	if (temp_dst != NULL) { /* Was it successful? */
-	
-		if ( memcpy(temp_dst,ptr, get_block_size(ptr)) == temp_dst){ /* Try to copy */
-			free(ptr); /* release the old space/*/
-			return temp_dst;
-		
+
+		if (sz>0) {
+			if ( memcpy(temp_dst,ptr, get_block_size(ptr)) == temp_dst){ /* Try to copy */
+				free(ptr); /* release the old space/*/
+				return temp_dst;
+			} else { /* If size is 0 we need to free it.*/
+				free(ptr);
+			}
 		}
+	} else { /* space has never been allocated */
+		return malloc(sz);
 	}
 	return NULL;
 }
