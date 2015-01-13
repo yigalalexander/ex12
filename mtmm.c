@@ -189,9 +189,8 @@ static int heap_keeps_invariant(MemHeap * heap)
 	return 1;
 }
 
-int maintain_invariant(MemHeap * heap) {
+static void maintain_invariant(MemHeap * heap) {
 	DBG_ENTRY
-	int result;
 	
 	SuperBlock *empty_sb;
 
@@ -203,7 +202,8 @@ int maintain_invariant(MemHeap * heap) {
 		empty_sb = find_thin_sb(heap);
 	}
 	DBG_EXIT
-	return result;
+
+
 }
 
 
@@ -351,15 +351,15 @@ static void update_heap_stats(MemHeap * heap, int total_delta, int used_delta) {
 SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
 	SuperBlock * curr_sb;
 	SizeClass * curr_class=&( heap->sizeClasses[requested_class] );
-	SuperBlock * prev_sb;
+	/*SuperBlock * prev_sb; */ /* No need for it */
 
-	prev_sb=curr_class->super_blocks_list.tail;
+	/*prev_sb=curr_class->super_blocks_list.tail;*/
 
 	for (curr_sb=curr_class->super_blocks_list.head;
 			(curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
 			curr_sb=curr_sb->next) {
 
-		prev_sb=curr_sb;
+		/*prev_sb=curr_sb; */
 	}
 
 	if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
@@ -414,6 +414,8 @@ static void * malloc_work (size_t sz) {
 	pthread_t self_tid;
 	SuperBlock * source_sb; /* SuperBlock to take from */
 	void *p;
+
+	self_tid=pthread_self();
 
 	if (sz>=1) { /* valid size */
 

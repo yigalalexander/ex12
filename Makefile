@@ -2,7 +2,7 @@ CC=gcc
 
 TARGET = linux-scalability
 
-MYFLAGS =  -g -O0 -Wall -m32 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free 
+MYFLAGS =  -g3 -L./ -O0 -Wall -m32 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free 
 
 # uncomment this to link with hoard memory allicator 
 MYLIBS = libmtmm.a
@@ -23,7 +23,7 @@ libSimpleMTMM.a:
 
 
 $(TARGET): $(TARGET).c
-	$(CC) $(CCFLAGS) $(MYFLAGS) $(MYLIBS) $(TARGET).c -o $(TARGET) -lpthread -lm -libSimpleMTMM
+	$(CC) $(CCFLAGS) $(MYFLAGS) $(MYLIBS) $(TARGET).c -o $(TARGET) -lpthread -lm -lSimpleMTMM
 
 clean:
 	rm -f $(TARGET)  *.o libSimpleMTMM.a
