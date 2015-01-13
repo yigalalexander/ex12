@@ -1,0 +1,156 @@
+gcc -g -O0 -Wall -m32 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free  -c mtmm.c 
+In file included from mtmm.c:8:0:
+mtmm.h:36:16: error: unknown type name ‘size_t’
+ void * malloc (size_t sz);
+                ^
+mtmm.h:80:29: error: unknown type name ‘size_t’
+ void * realloc (void * ptr, size_t sz) ;
+                             ^
+mtmm.c: In function ‘return_block_to_superblock’:
+mtmm.c:141:23: error: incompatible types when initializing type ‘struct BlockList *’ using type ‘BlockList’
+  BlockList * trg_list=target->blocks;
+                       ^
+mtmm.c:150:2: warning: implicit declaration of function ‘update_heap_stats’ [-Wimplicit-function-declaration]
+  update_heap_stats(origin_heap,0,(-1)*( block->size));
+  ^
+mtmm.c: In function ‘maintain_invariant’:
+mtmm.c:183:2: warning: implicit declaration of function ‘find_thin_sb’ [-Wimplicit-function-declaration]
+  empty_sb = find_thin_sb(heap);
+  ^
+mtmm.c:183:11: warning: assignment makes pointer from integer without a cast [enabled by default]
+  empty_sb = find_thin_sb(heap);
+           ^
+mtmm.c:187:3: warning: implicit declaration of function ‘move_superblock’ [-Wimplicit-function-declaration]
+   move_superblock(heap, &(hoard.mHeaps[GLOBAL_HEAP]), empty_sb);
+   ^
+mtmm.c:188:12: warning: assignment makes pointer from integer without a cast [enabled by default]
+   empty_sb = find_thin_sb(heap);
+            ^
+mtmm.c: At top level:
+mtmm.c:196:21: error: conflicting types for ‘find_thin_sb’
+ static SuperBlock * find_thin_sb(MemHeap * heap) {
+                     ^
+mtmm.c:183:13: note: previous implicit declaration of ‘find_thin_sb’ was here
+  empty_sb = find_thin_sb(heap);
+             ^
+mtmm.c: In function ‘find_thin_sb’:
+mtmm.c:202:35: error: invalid type argument of ‘->’ (have ‘SizeClass’)
+   pos=heap->sizeClasses[idx_class]->super_blocks_list.head;
+                                   ^
+mtmm.c: In function ‘add_superblock_to_heap’:
+mtmm.c:225:2: warning: implicit declaration of function ‘fetch_os_memory’ [-Wimplicit-function-declaration]
+  temp=fetch_os_memory(SUPERBLOCK_SIZE);
+  ^
+mtmm.c:225:6: warning: assignment makes pointer from integer without a cast [enabled by default]
+  temp=fetch_os_memory(SUPERBLOCK_SIZE);
+      ^
+mtmm.c: At top level:
+mtmm.c:287:13: warning: conflicting types for ‘move_superblock’ [enabled by default]
+ static void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
+             ^
+mtmm.c:287:13: error: static declaration of ‘move_superblock’ follows non-static declaration
+mtmm.c:187:3: note: previous implicit declaration of ‘move_superblock’ was here
+   move_superblock(heap, &(hoard.mHeaps[GLOBAL_HEAP]), empty_sb);
+   ^
+mtmm.c: In function ‘move_superblock’:
+mtmm.c:293:15: warning: unused variable ‘temp’ [-Wunused-variable]
+  SuperBlock * temp;
+               ^
+mtmm.c: At top level:
+mtmm.c:330:13: warning: conflicting types for ‘update_heap_stats’ [enabled by default]
+ static void update_heap_stats(MemHeap * heap, int total_delta, int used_delta) {
+             ^
+mtmm.c:330:13: error: static declaration of ‘update_heap_stats’ follows non-static declaration
+mtmm.c:150:2: note: previous implicit declaration of ‘update_heap_stats’ was here
+  update_heap_stats(origin_heap,0,(-1)*( block->size));
+  ^
+mtmm.c: In function ‘scan_heap’:
+mtmm.c:338:15: warning: variable ‘prev_sb’ set but not used [-Wunused-but-set-variable]
+  SuperBlock * prev_sb;
+               ^
+mtmm.c: At top level:
+mtmm.c:359:15: error: conflicting types for ‘fetch_os_memory’
+ static void * fetch_os_memory(size_t sz) {
+               ^
+mtmm.c:225:7: note: previous implicit declaration of ‘fetch_os_memory’ was here
+  temp=fetch_os_memory(SUPERBLOCK_SIZE);
+       ^
+mtmm.c: In function ‘malloc_work’:
+mtmm.c:423:63: error: request for member ‘mutex’ in something not a structure or union
+    pthread_mutex_lock( &(hoard.mHeaps[thread_heap].sizeClasses.mutex) ); /* 3. Lock heap relevant size class in relevant heap */
+                                                               ^
+mtmm.c:435:66: error: request for member ‘mutex’ in something not a structure or union
+     pthread_mutex_unlock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses.mutex) ); /* release the global heap, we don't need it */
+                                                                  ^
+mtmm.c:440:9: warning: passing argument 1 of ‘move_superblock’ from incompatible pointer type [enabled by default]
+         source_sb, relevant_class); /* 10. Transfer the superblock s to heap i. */
+         ^
+mtmm.c:287:13: note: expected ‘struct sCPUHeap *’ but argument is of type ‘struct SizeClass *’
+ static void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
+             ^
+mtmm.c:440:9: warning: passing argument 2 of ‘move_superblock’ from incompatible pointer type [enabled by default]
+         source_sb, relevant_class); /* 10. Transfer the superblock s to heap i. */
+         ^
+mtmm.c:287:13: note: expected ‘struct sCPUHeap *’ but argument is of type ‘struct SizeClass *’
+ static void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
+             ^
+mtmm.c:453:65: error: request for member ‘mutex’ in something not a structure or union
+    pthread_mutex_unlock( &(hoard.mHeaps[thread_heap].sizeClasses.mutex) ); //17. Unlock heap i.
+                                                                 ^
+mtmm.c: At top level:
+mtmm.c:467:15: error: static declaration of ‘malloc_init’ follows non-static declaration
+ static void * malloc_init (size_t sz) {
+               ^
+mtmm.c:35:8: note: previous declaration of ‘malloc_init’ was here
+ void * malloc_init (size_t sz); /* Initialization function prototype */
+        ^
+mtmm.c:495:13: error: static declaration of ‘free’ follows non-static declaration
+ static void free (void * ptr) {
+             ^
+In file included from mtmm.c:17:0:
+/usr/include/stdlib.h:483:13: note: previous declaration of ‘free’ was here
+ extern void free (void *__ptr) __THROW;
+             ^
+mtmm.c: In function ‘free’:
+mtmm.c:501:15: error: redeclaration of ‘origin_sb’ with no linkage
+  SuperBlock * origin_sb; /* superblock from which this was allocated */
+               ^
+mtmm.c:499:15: note: previous declaration of ‘origin_sb’ was here
+  SuperBlock * origin_sb,sb_to_return; /* Origin superblock*/
+               ^
+mtmm.c:530:5: warning: passing argument 1 of ‘find_thin_sb’ from incompatible pointer type [enabled by default]
+     sb_to_return=find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
+     ^
+mtmm.c:196:21: note: expected ‘struct sCPUHeap *’ but argument is of type ‘struct SizeClass *’
+ static SuperBlock * find_thin_sb(MemHeap * heap) {
+                     ^
+mtmm.c:530:17: error: incompatible types when assigning to type ‘struct ssuperblock’ from type ‘struct ssuperblock *’
+     sb_to_return=find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
+                 ^
+mtmm.c:531:21: error: invalid operands to binary != (have ‘struct ssuperblock’ and ‘void *’)
+     if (sb_to_return!=NULL){ /*10. Transfer a mostly-empty superblock s1 to heap 0 (the global heap). */
+                     ^
+mtmm.c:536:6: error: incompatible type for argument 3 of ‘move_superblock’
+      move_superblock(origin_heap, &(hoard.mHeaps[GLOBAL_HEAP]),sb_to_return);
+      ^
+mtmm.c:287:13: note: expected ‘struct ssuperblock *’ but argument is of type ‘struct ssuperblock’
+ static void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
+             ^
+mtmm.c:536:6: error: too few arguments to function ‘move_superblock’
+      move_superblock(origin_heap, &(hoard.mHeaps[GLOBAL_HEAP]),sb_to_return);
+      ^
+mtmm.c:287:13: note: declared here
+ static void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class){
+             ^
+mtmm.c: In function ‘realloc’:
+mtmm.c:574:4: warning: implicit declaration of function ‘memcpy’ [-Wimplicit-function-declaration]
+    if ( memcpy(temp_dst,ptr, copy_size) == temp_dst){ /* Try to copy */
+    ^
+mtmm.c:574:9: warning: incompatible implicit declaration of built-in function ‘memcpy’ [enabled by default]
+    if ( memcpy(temp_dst,ptr, copy_size) == temp_dst){ /* Try to copy */
+         ^
+mtmm.c: At top level:
+mtmm.c:467:15: warning: ‘malloc_init’ defined but not used [-Wunused-function]
+ static void * malloc_init (size_t sz) {
+               ^
+make: *** [libSimpleMTMM.a] Error 1

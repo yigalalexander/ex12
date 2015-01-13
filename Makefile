@@ -5,10 +5,10 @@ TARGET = linux-scalability
 MYFLAGS =  -g -O0 -Wall -m32 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free 
 
 # uncomment this to link with hoard memory allicator 
-#MYLIBS = libmtmm.a
+MYLIBS = libmtmm.a
 
 # uncomment this to link with simple memory allocator
-MYLIBS = libSimpleMTMM.a
+#MYLIBS = libSimpleMTMM.a
 
 # uncomment this to link with standard memory allocator
 #MYLIBS = 
