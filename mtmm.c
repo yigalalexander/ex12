@@ -15,7 +15,7 @@
 #include <pthread.h>
 #include <math.h>
 #include <stdlib.h>
-/* TODO update stats after adding a super block should consider number of blocks*size*/
+
 /* Debug tools */
 #define DBG_MSG printf("\n[%d]: %s):", __LINE__, __FUNCTION__);printf
 #define DBG_ENTRY printf("\n[%d]: --> %s", __LINE__,__FUNCTION__);
@@ -178,13 +178,11 @@ int maintain_invariant(MemHeap * heap) {
 	DBG_ENTRY
 	int result;
 	
-
-	/* TODO implement*/
 	SuperBlock *empty_sb;
 
-	empty_sb = find_thin_sb(heapNum);
+	empty_sb = find_thin_sb(heap);
 	
-	while (empty_sb  && heap_keeps_invariant(heap))
+	while (empty_sb  && heap_keeps_invariant(heap)) /* Can we find a block to free and the heap breaks the invariant?*/
 	{
 		move_superblock(heap, &(hoard.mHeaps[GLOBAL_HEAP]), empty_sb);
 		empty_sb = find_thin_sb(heap);
@@ -209,7 +207,7 @@ static SuperBlock * find_thin_sb(MemHeap * heap) {
 			}
 		}
 	}
-	return pos; /* If we made it here with no pointer - it is a NULL */
+	return NULL; /* If we made it here with no pointer - it is a NULL */
 }
 
 static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
@@ -270,7 +268,7 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	}
 
 	/*update counters*/
-	update_heap_stats(heap,SUPERBLOCK_SIZE,0);
+	update_heap_stats(heap, (max_blocks*class_block_size) ,0);
 	new_sb->num_total_blocks=max_blocks;
 	new_sb->block_size=class_block_size;
 
