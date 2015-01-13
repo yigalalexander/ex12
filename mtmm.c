@@ -5,17 +5,20 @@
  *      Student: Yigal Alexander
  *      	 ID: 306914565
  */
-#include "mtmm.h"
+#include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/mman.h>
-#include <stddef.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <string.h>
 #include <math.h>
-#include <stdlib.h>
+#include "mtmm.h"
+
+
 
 /* Debug tools */
 #define DBG_MSG printf("\n[%d]: %s):", __LINE__, __FUNCTION__);printf
@@ -32,6 +35,7 @@
 
 #define HASH(A) ((A)%CPU_COUNT)
 #define abrt(X) perror(X); exit(0);
+#define size_t unsigned int
 
 static void * malloc_init (size_t sz); /* Initialization function prototype */
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
@@ -346,8 +350,8 @@ static void update_heap_stats(MemHeap * heap, int total_delta, int used_delta) {
 /* Scans a given heap for a suitable SuperBlock */
 SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
 	SuperBlock * curr_sb;
-	SuperBlock * prev_sb;
 	SizeClass * curr_class=&( heap->sizeClasses[requested_class] );
+	SuperBlock * prev_sb;
 
 	prev_sb=curr_class->super_blocks_list.tail;
 
@@ -503,11 +507,11 @@ void * malloc (size_t sz) {
 
 }
 
-static void free (void * ptr) {
+void free (void * ptr) {
 
 	int relevant_class;
 	BlockHeader * block_ptr;
-	SuperBlock * origin_sb,sb_to_return;	/* Origin superblock*/
+	SuperBlock * sb_to_return;	/* temp pointer for returning a superblock*/
 	MemHeap * origin_heap;	/* relevant heap */
 	SuperBlock * origin_sb; /* superblock from which this was allocated */
 	size_t returned_size; 		/* returned size */
@@ -538,7 +542,7 @@ static void free (void * ptr) {
 
 			// if relevant sizeclass on the global heap is empty - find a mostly empty block to return
 			if (origin_heap!=&(hoard.mHeaps[GLOBAL_HEAP])) {
-				sb_to_return=find_thin_sb(&(origin_heap));
+				sb_to_return=find_thin_sb(origin_heap);
 				if (sb_to_return!=NULL){ /*10. Transfer a mostly-empty superblock s1 to heap 0 (the global heap). */
 
 					pthread_mutex_lock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class].mutex) ); //If the block is not from the GLOBAL_HEAP lock global heap
