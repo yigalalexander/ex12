@@ -15,7 +15,7 @@
 #include <pthread.h>
 #include <math.h>
 #include <stdlib.h>
-
+/* TODO update stats after adding a super block should consider number of blocks*size*/
 /* Debug tools */
 #define DBG_MSG printf("\n[%d]: %s):", __LINE__, __FUNCTION__);printf
 #define DBG_ENTRY printf("\n[%d]: --> %s", __LINE__,__FUNCTION__);
@@ -27,7 +27,7 @@
 #define GLOBAL_HEAP CPU_COUNT
 #define BLOCK_LIMIT SUPERBLOCK_SIZE/2
 #define K 0 /* Should it be 1 ??*/
-#define EMPTINESS_THRESHOLD (1/4) /* Emptiness threshold for a superblock*/
+#define FULLNESS_THRESHOLD (1/4) /* Emptiness threshold for a superblock*/
 
 #define HASH(A) ((A)%CPU_COUNT)
 #define abrt(X) perror(X); exit(0);
@@ -152,31 +152,64 @@ static void return_block_to_superblock (BlockHeader * block, SuperBlock * target
 	DBG_EXIT
 }
 
-int heap_keeps_invariant(MemHeap * sb) {
+static int heap_keeps_invariant(MemHeap * heap)
+{
+	size_t total_size;
+	size_t mem_used;
+
+	total_size = heap->total_size;
+	mem_used =  heap->total_used;
+
+
+	if (mem_used >= total_size - (K * SUPERBLOCK_SIZE))
+	{
+		return 0;
+	}
+
+	if (mem_used >= (1 - FULLNESS_THRESHOLD) * total_size)
+	{
+		return 0;
+	}
+
+	return 1;
+}
+
+int maintain_invariant(MemHeap * heap) {
 	DBG_ENTRY
 	int result;
 	
+
 	/* TODO implement*/
+	SuperBlock *empty_sb;
+
+	empty_sb = find_thin_sb(heapNum);
 	
+	while (empty_sb  && heap_keeps_invariant(heap))
+	{
+		move_superblock(heap, &(hoard.mHeaps[GLOBAL_HEAP]), empty_sb);
+		empty_sb = find_thin_sb(heap);
+	}
 	DBG_EXIT
 	return result;
 }
 
-static SuperBlock * find_thin_sb(SizeClass * sizeclass) {
 
+
+static SuperBlock * find_thin_sb(MemHeap * heap) {
+
+	int idx_class;
 	SuperBlock * pos;
 
-	pos=sizeclass->super_blocks_list.head;
-	
-	while (pos!=NULL) {
-		if ((pos->num_free_blocks / pos->num_total_blocks) > EMPTINESS_THRESHOLD ) { //for each sb check if free to total ratio meets threshold
-			return pos;
+	for (idx_class=0; idx_class<NUM_SIZE_CLASSES; idx_class++){ /* iterate on all size classes */
+		pos=heap->sizeClasses[idx_class]->super_blocks_list.head;
+		while (pos!=NULL) {
+			if ((pos->num_free_blocks / pos->num_total_blocks) > FULLNESS_THRESHOLD ) { //for each sb check if free to total ratio meets threshold
+				return pos;
+				pos=pos->next;	// if sb is not keeping invariant stop the loop and return it.
+			}
 		}
 	}
-	
-	// if sb is not keeping invariant stop the loop and return it.
-	
-	return pos;
+	return pos; /* If we made it here with no pointer - it is a NULL */
 }
 
 static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
@@ -480,6 +513,9 @@ static void free (void * ptr) {
 			/* Resolving of parent structs */
 			/* 3. Find the superblock s this block comes from and lock it, */
 			origin_sb=block_ptr->parent_super_block;
+
+			 /* TODO lock the super block */
+
 			origin_heap=origin_sb->parent_heap;
 			returned_size=get_block_size(ptr);
 			relevant_class=size_to_class(returned_size);
@@ -504,11 +540,7 @@ static void free (void * ptr) {
 			}
 			update_heap_stats(origin_heap,0,(-1)*(returned_size));
 
-			//check if the heap keeps the invariant
-			// if not - find a thin SB to move to the global
-			find_thin_sb(&(origin_heap->sizeClasses[relevant_class]));
-
-			
+			maintain_invariant(origin_heap);
 			/*
 
 			6. u i ← u i − block size. update
