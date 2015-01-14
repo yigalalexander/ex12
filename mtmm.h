@@ -2,7 +2,7 @@
 #define __MTMM__H__
 
 
-// The minimum allocation grain for a given object
+/* The minimum allocation grain for a given object */
 #define SUPERBLOCK_SIZE 65536
 
 

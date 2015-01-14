@@ -31,7 +31,7 @@
 #define GLOBAL_HEAP CPU_COUNT
 #define BLOCK_LIMIT (SUPERBLOCK_SIZE/2)
 #define K 0 /* Should it be 1 ??*/
-#define FULLNESS_THRESHOLD (1/4) /* Emptiness threshold for a superblock*/
+#define FULLNESS_THRESHOLD (0.25) /* Emptiness threshold for a superblock*/
 
 
 #define HASH(A) ((A)%CPU_COUNT)
@@ -219,18 +219,25 @@ static void maintain_invariant(MemHeap * heap) {
 
 }
 
-
-
 static SuperBlock * find_thin_sb(MemHeap * heap) {
 
+	int idx_heap;
 	int idx_class;
 	SuperBlock * pos;
-	//DBG_ENTRY
-	for (idx_class=0; idx_class<NUM_SIZE_CLASSES; idx_class++){ /* iterate on all size classes */
-		pos=heap->sizeClasses[idx_class].super_blocks_list.head;
-		while (pos!=NULL) {
-			if ((pos->num_free_blocks / pos->num_total_blocks) > FULLNESS_THRESHOLD ) { //for each sb check if free to total ratio meets threshold
-				return pos;
+	DBG_ENTRY
+	for (idx_heap=0; idx_heap<CPU_COUNT; idx_heap++){ /* iterate on all size classes */
+		DBG_MSG("In heap %d",idx_heap);
+		for (idx_class=0; idx_class<NUM_SIZE_CLASSES; idx_class++) {
+			pos=heap->sizeClasses[idx_class].super_blocks_list.head;
+			DBG_MSG("In class %d We have %d superblocks",idx_class,heap->sizeClasses[idx_class].super_blocks_list.count);
+			while (pos!=NULL) {
+				DBG_MSG("super block %p",pos);
+				if ((pos->num_free_blocks / pos->num_total_blocks) > FULLNESS_THRESHOLD ) { //for each sb check if free to total ratio meets threshold
+					DBG_MSG("threshold met",pos);
+					return pos;
+
+
+				}
 				pos=pos->next;	// if sb is not keeping invariant stop the loop and return it.
 			}
 		}
@@ -295,20 +302,25 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	new_sb->blocks.tail=(BlockHeader *)raw_mem_pos;//connect the tail;
 	//DBG_MSG("Connected to block list ");
 
+
 	/* Connect the superblock to the heap*/
 	target_list=&(heap->sizeClasses[class].super_blocks_list);
 	if ( target_list->count > 0 ) { 				//if it has blocks
 		target_list->tail->next=new_sb;				//add as the next of the tail.
 		new_sb->prev=target_list->tail;				//updated the prev pointer
 		target_list->tail=new_sb;					//change the tail
+		DBG_MSG("There are SBs, adding at the end");
 	} else {
+		DBG_MSG("No super blocks in the heap, adding new");
 		target_list->tail=target_list->head=new_sb; //add it as both the head and the tail
 	}
 	//DBG_MSG("Connected to superblock list ");
-
+	heap->sizeClasses[class].super_blocks_list.count=heap->sizeClasses[class].super_blocks_list.count+1;
+	DBG_MSG("number of super blocks now is %d",heap->sizeClasses[class].super_blocks_list.count);
 	/*update counters*/
 	update_heap_stats(heap, (max_blocks*class_block_size) ,0);
 	new_sb->num_total_blocks=max_blocks;
+	new_sb->num_free_blocks=max_blocks;
 	new_sb->block_size=class_block_size;
 	//DBG_MSG("Updated Superblock with stats ");
 
@@ -363,6 +375,8 @@ static void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb
 	sb->parent_heap=target;
 
 	/*update counters*/
+	src_list->count--;
+	trg_list->count++;
 	update_heap_stats(source,(-SUPERBLOCK_SIZE),((-1)*(sb->num_total_blocks - sb->num_free_blocks)*(sb->block_size)));
 	update_heap_stats(target,SUPERBLOCK_SIZE, (sb->num_total_blocks - sb->num_free_blocks)*(sb->block_size));
 
@@ -392,16 +406,15 @@ SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
 				curr_sb=curr_sb->next); {
 			DBG_MSG("Checking if the superblock has free blocks");
 			if (curr_sb->num_free_blocks>0)
+				DBG_MSG("We have a block");
 				return curr_sb; /* Did we find a superblock? return the pointer  */
 
 
 			/*prev_sb=curr_sb; */
 		}
 
-		if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
-			return curr_sb;
-		}
 	}
+	DBG_MSG("no blocks, returning NULL");
 	return NULL;
 	DBG_EXIT
 
@@ -422,8 +435,10 @@ static void * fetch_os_memory(size_t sz) {
 	total_to_alloc=sz;
 
 	p = mmap(0, total_to_alloc, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
-	close(fd);
+	DBG_MSG("Closing file");
 
+	close(fd);
+	DBG_MSG("Closed file");
 	if (p == MAP_FAILED){
 		abrt("OS failed to allocate memory");
 	}
@@ -587,14 +602,15 @@ void free (void * ptr) {
 
 			/*   4. Lock heap i, the superblock’s owner.*/
 			pthread_mutex_trylock( &(origin_heap->sizeClasses[relevant_class].mutex) ); /* 3. Find the superblock s this block comes from and lock it.*/
-			DBG_MSG("Heap mutex locked");
+			pthread_mutex_unlock(&(origin_sb->mutex)); /* Unlock superblock*/
+			DBG_MSG("Heap mutex locked, superblock unlocked");
 			return_block_to_superblock(block_ptr,origin_sb); /*5. Deallocate the block from the superblock. */
 
 			update_heap_stats(origin_heap,0,(-1)*(returned_size)); /* 6. u i ← u i − block size. 7. s.u ← s.u − block size.*/
 			DBG_MSG("updated stats");
-			pthread_mutex_unlock(&(origin_sb->mutex)); /* Unlock superblock*/
+
 			pthread_mutex_unlock( &(origin_heap->sizeClasses[relevant_class].mutex) ); /* 8. If i = 0, unlock heap i and the superblock and return.*/
-			DBG_MSG("Unlocked mutexes");
+			DBG_MSG("Unlocked mutexes - checking invariant");
 			maintain_invariant(origin_heap);
 		}
 	}

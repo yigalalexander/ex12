@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <pthread.h>
+#include <sys/types.h>
 
 #define USECSPERSEC 1000000
 #define pthread_attr_default NULL
@@ -183,8 +184,7 @@ run_test (void * arg)
   pthread_barrier_wait (&barrier);
   unsigned int pt = tid;
   executionTime[pt % thread_count] = adjusted.tv_sec + adjusted.tv_usec / 1000000.0;
-  //  printf ("Thread %u adjusted timing: %d.%06d seconds for %d requests" " of %d bytes.\n", pt, adjusted.tv_sec, adjusted.tv_usec, total_iterations, request_size);
-
+  /* printf ("Thread %u adjusted timing: %d.%06d seconds for %d requests" " of %d bytes.\n", pt, adjusted.tv_sec, adjusted.tv_usec, total_iterations, request_size);*/
   return NULL;
 }
 
