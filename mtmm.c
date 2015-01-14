@@ -234,7 +234,7 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	DBG_ENTRY
 	/* variables*/
 	void * temp;
-	BlockHeader * raw_mem_pos;
+	void * raw_mem_pos;
 	BlockHeader * prev_block_pos;
 	void * temp_new_pointer;
 	int max_blocks;
@@ -279,7 +279,7 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 		((BlockHeader *)raw_mem_pos)->size=class_block_size;
 		((BlockHeader *)raw_mem_pos)->next=(BlockHeader *)(raw_mem_pos+block_size);
 		((BlockHeader *)raw_mem_pos)->prev=prev_block_pos;
-		DBG_MSG("block #%d - pos: %p raw_mem: %p parent_sb is: %p",i,raw_mem_pos,raw_mem_pos->raw_mem,new_sb);
+		//DBG_MSG("block #%d - pos: %p raw_mem: %p parent_sb is: %p",i,raw_mem_pos,raw_mem_pos->raw_mem,new_sb);
 		prev_block_pos=(BlockHeader *)raw_mem_pos;//advance prev_block_pos
 		raw_mem_pos += block_size;//increase raw_mem_pos;
 		//DBG_MSG("finished block");

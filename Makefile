@@ -2,7 +2,7 @@ CC=gcc
 
 TARGET = linux-scalability
 
-MYFLAGS =  -g3 -L./ -O0 -Wall -m32 -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free 
+MYFLAGS =  -m32 -g3 -L./ -O0 -Wall  -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free 
 
 # uncomment this to link with hoard memory allicator 
 MYLIBS = libmtmm.a
