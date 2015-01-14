@@ -30,3 +30,5 @@
 
 # Others
 *.txt
+*core*
+*linux*

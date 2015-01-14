@@ -29,13 +29,16 @@
 #define NUM_SIZE_CLASSES 16
 #define CPU_COUNT 2
 #define GLOBAL_HEAP CPU_COUNT
-#define BLOCK_LIMIT SUPERBLOCK_SIZE/2
+#define BLOCK_LIMIT (SUPERBLOCK_SIZE/2)
 #define K 0 /* Should it be 1 ??*/
 #define FULLNESS_THRESHOLD (1/4) /* Emptiness threshold for a superblock*/
+
+#define MAX_BLOCK_DBG_LIMIT 100
 
 #define HASH(A) ((A)%CPU_COUNT)
 #define abrt(X) perror(X); exit(0);
 #define size_t unsigned int
+#define MIN(A,B) (((A)<(B))?A:B)
 
 static void * malloc_init (size_t sz); /* Initialization function prototype */
 static void * (*real_malloc)(size_t)=malloc_init; /*pointer to the real malloc to be used*/
@@ -124,28 +127,30 @@ int size_to_class (int size) {
 }
 
 static void * allocate_from_superblock (SuperBlock * source, size_t sz) {
-
+	DBG_ENTRY
+	DBG_MSG("got an sb at: %p",source);
 	if (source->num_free_blocks>0) { /* if there is a free block allocate it */
 		BlockHeader * temp_block;
 
 		temp_block=source->blocks.head;
-
+		DBG_MSG("there are block in this sb.");
 		if (source->num_free_blocks>1) { /*If there is more than one */
-
+			DBG_MSG("more than one,detaching");
 			source->blocks.tail->next = source->blocks.head->next;// connect tail with new head (next)
 			source->blocks.head->prev = source->blocks.tail;// connect new head with tail (prev)
 			source->blocks.head = source->blocks.head->next;// update new head
 
 		} else { /* Single Block available */
 			source->blocks.head=NULL;
-			source->blocks.head=NULL;
+			source->blocks.tail=NULL;
 		}
 
 		source->blocks.count--;
 		source->num_free_blocks--;// decrease num of free blocks on the superblock
-
+		DBG_MSG("Returning block with pointer %p",temp_block->raw_mem);
 		return (temp_block->raw_mem);// return pointer
 	}
+	DBG_EXIT
 	return NULL;
 }
 
@@ -236,28 +241,30 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	size_t block_size;
 	SuperBlockList * target_list;
 	int class_block_size=((int)pow(2,class));
-
 	temp=fetch_os_memory(SUPERBLOCK_SIZE);
 	SuperBlock * new_sb=((SuperBlock *) temp);
 	block_size=class_block_size+sizeof(BlockHeader);
-
+	DBG_MSG("Got a block from the OS s:%p f:%p block_size:%d",temp,temp+SUPERBLOCK_SIZE,block_size);
 	/* Init the superblock header*/
 	new_sb->blocks.head=NULL;
 	new_sb->blocks.tail=NULL;
 	new_sb->raw_mem=temp+sizeof(SuperBlock); /* Starting point of blocks */
+	DBG_MSG("starting point for raw mem for this sb is: %p",new_sb->raw_mem);
 	new_sb->next=NULL;
 	new_sb->prev=NULL;
 	new_sb->parent_heap=heap;
 
 
 	/* Number of block the size of sizeclass with a header in the remaining space after removing the SuperBlock header*/
-	max_blocks=( (SUPERBLOCK_SIZE-sizeof(SuperBlock)) / block_size );
+	max_blocks=MIN(MAX_BLOCK_DBG_LIMIT,( (SUPERBLOCK_SIZE-sizeof(SuperBlock)) / block_size ));/*( (SUPERBLOCK_SIZE-sizeof(SuperBlock)) / block_size );*/
 	new_sb->blocks.count=max_blocks;
-
+	new_sb->num_free_blocks=max_blocks;
+	DBG_MSG("Number of blocks %d",max_blocks);
 	prev_block_pos=raw_mem_pos=(BlockHeader *)new_sb->raw_mem;
 
 	/* Chop the superblock into blocks */
 	for (i=1; i<=max_blocks; i++) {
+		//DBG_MSG("Init block #%d - current pointer is %p ",i,raw_mem_pos);
 		((BlockHeader *)raw_mem_pos)->parent_super_block=new_sb;//add the new block as a pointer to block_pos;
 		((BlockHeader *)raw_mem_pos)->raw_mem=raw_mem_pos+sizeof(BlockHeader); // set the pointer for the Block raw memory
 		((BlockHeader *)raw_mem_pos)->size=class_block_size;
@@ -266,11 +273,13 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 
 		prev_block_pos=(BlockHeader *)raw_mem_pos;//advance prev_block_pos
 		raw_mem_pos += block_size;//increase raw_mem_pos;
+		//DBG_MSG("finished block");
 
 	}
 	/* Connect to block list struct*/
 	new_sb->blocks.head=(BlockHeader *)new_sb->raw_mem;
 	new_sb->blocks.tail=(BlockHeader *)raw_mem_pos;//connect the tail;
+	DBG_MSG("Connected to block list ");
 
 	/* Connect the superblock to the heap*/
 	target_list=&(heap->sizeClasses[class].super_blocks_list);
@@ -281,11 +290,13 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	} else {
 		target_list->tail=target_list->head=new_sb; //add it as both the head and the tail
 	}
+	DBG_MSG("Connected to superblock list ");
 
 	/*update counters*/
 	update_heap_stats(heap, (max_blocks*class_block_size) ,0);
 	new_sb->num_total_blocks=max_blocks;
 	new_sb->block_size=class_block_size;
+	DBG_MSG("Updated Superblock with stats ");
 
 	DBG_EXIT
 	return new_sb;
@@ -293,10 +304,13 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 }
 
 static size_t get_block_size(void * ptr) {
+	DBG_ENTRY
 	if (ptr!=NULL) {
 		return ( ((BlockHeader *)(ptr-sizeof(BlockHeader)))->size );
 	}
+	DBG_EXIT
 	return (-1);
+
 }
 
 static void move_superblock (MemHeap * source, MemHeap * target, SuperBlock * sb, int class) {
@@ -349,24 +363,30 @@ static void update_heap_stats(MemHeap * heap, int total_delta, int used_delta) {
 
 /* Scans a given heap for a suitable SuperBlock */
 SuperBlock * scan_heap (MemHeap * heap,int requested_class) {
+	DBG_ENTRY
 	SuperBlock * curr_sb;
 	SizeClass * curr_class=&( heap->sizeClasses[requested_class] );
 	/*SuperBlock * prev_sb; */ /* No need for it */
 
 	/*prev_sb=curr_class->super_blocks_list.tail;*/
+	if (curr_class->super_blocks_list.count >0) {
+		DBG_MSG("Going to scan a superblock list");
+		for (curr_sb=curr_class->super_blocks_list.head; (curr_sb != curr_class->super_blocks_list.tail); /* We made it to the end of the list */
+				curr_sb=curr_sb->next); {
+			DBG_MSG("Checking if the superblock has free blocks");
+			if (curr_sb->num_free_blocks>0)
+				return curr_sb; /* Did we find a superblock? return the pointer  */
 
-	for (curr_sb=curr_class->super_blocks_list.head;
-			(curr_sb != curr_class->super_blocks_list.tail) || (curr_sb->num_free_blocks>0); /* We made it to the end of the list or we found a superblock with free blocks*/
-			curr_sb=curr_sb->next) {
 
-		/*prev_sb=curr_sb; */
+			/*prev_sb=curr_sb; */
+		}
+
+		if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
+			return curr_sb;
+		}
 	}
-
-	if (curr_sb->num_free_blocks>0) { /* if there is a free block allocate it */
-		return curr_sb;
-	}
-
 	return NULL;
+	DBG_EXIT
 
 }
 
@@ -398,7 +418,7 @@ static void return_os_memory(void * ptr) {
 	DBG_ENTRY
 	if (ptr != NULL)
 	{
-		int size = ((BlockHeader *)(ptr - sizeof(BlockHeader))) -> size + sizeof(BlockHeader);
+		size_t size = ((BlockHeader *)(ptr - sizeof(BlockHeader))) -> size + sizeof(BlockHeader);
 		if (munmap(ptr - sizeof(BlockHeader), size) < 0)
 		{
 			abrt("Error releasing memory to OS");
@@ -421,6 +441,7 @@ static void * malloc_work (size_t sz) {
 
 		if ( (sz+sizeof(BlockHeader)) >(BLOCK_LIMIT)) { /* sz > S/2, allocate the superblock from the OS and return it. */
 
+
 			DBG_MSG("Requested size exceeds half super block");
 
 			p=fetch_os_memory(sz+sizeof(BlockHeader));
@@ -436,7 +457,7 @@ static void * malloc_work (size_t sz) {
 			int relevant_class=size_to_class(sz);
 
 			/* relevant size class */
-
+			DBG_MSG("Locking heap %d for class %d",thread_heap,relevant_class);
 			pthread_mutex_lock( &(hoard.mHeaps[thread_heap].sizeClasses[relevant_class].mutex) ); /* 3. Lock heap relevant size class in relevant heap */
 
 			source_sb=scan_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class);/* 4. Scan heap i’s list of superblocks from most full to least (for the size class corresponding to sz).*/
@@ -467,7 +488,9 @@ static void * malloc_work (size_t sz) {
 					16. s.u ← s.u + sz.
 			 */
 			p=allocate_from_superblock(source_sb,sz);
+			DBG_MSG("Unlocking heap %d for class %d",thread_heap,relevant_class);
 			pthread_mutex_unlock( &(hoard.mHeaps[thread_heap].sizeClasses[relevant_class].mutex) ); //17. Unlock heap i.
+			DBG_MSG("Successful acllocation - returning pointer %p Size: %d",p,get_block_size(p));
 			return p; //18. Return a block from the superblock.
 		}
 	}
@@ -482,7 +505,7 @@ static void * malloc_work (size_t sz) {
  * It initializes the structs and then replaces the real_malloc pointer to be "malloc_work" - for the next calls
  */
 static void * malloc_init (size_t sz) {
-
+	DBG_ENTRY
 	int idx_cpu=0;
 	for (idx_cpu=0; idx_cpu<=CPU_COUNT;idx_cpu++) { /* Init the CPU heaps*/
 		hoard.mHeaps[idx_cpu].CPUid=idx_cpu;
@@ -500,6 +523,7 @@ static void * malloc_init (size_t sz) {
 	}
 	real_malloc=malloc_work;
 	return ((*real_malloc)(sz)); /* Run the actual allocation function*/
+	DBG_EXIT
 
 }
 
@@ -510,7 +534,7 @@ void * malloc (size_t sz) {
 }
 
 void free (void * ptr) {
-
+	DBG_ENTRY
 	int relevant_class;
 	BlockHeader * block_ptr;
 	SuperBlock * sb_to_return;	/* temp pointer for returning a superblock*/
@@ -520,11 +544,16 @@ void free (void * ptr) {
 
 
 	if (ptr!=NULL){
-			block_ptr=(BlockHeader *)(ptr-sizeof(BlockHeader));
-		if ( ((block_ptr->size)-sizeof(BlockHeader)) > BLOCK_LIMIT) { /*1. If the block is “large” */
+		DBG_MSG("Ptr before shift: %p",ptr);
+		block_ptr=(BlockHeader *)(ptr-sizeof(BlockHeader));
+		DBG_MSG("Ptr after shift: %p",block_ptr);
+		returned_size=get_block_size(ptr);
+		DBG_MSG("Size returned is: %d",returned_size);
+		if ( returned_size > BLOCK_LIMIT) { /*1. If the block is “large” */
+			DBG_MSG("Large chunk to release");
 			return_os_memory(ptr); /* 2. Free the superblock to the operating system and return. return_os_memory */
 		} else {
-
+			DBG_MSG("Small chunk to release");
 			/* Resolving of parent structs */
 			/* 3. Find the superblock s this block comes from and lock it, */
 			origin_sb=block_ptr->parent_super_block;
@@ -532,7 +561,7 @@ void free (void * ptr) {
 			pthread_mutex_lock(&(origin_sb->mutex));
 
 			origin_heap=origin_sb->parent_heap;
-			returned_size=get_block_size(ptr);
+
 			relevant_class=size_to_class(returned_size);
 
 			/* Lock the mutex  */
@@ -573,7 +602,7 @@ void free (void * ptr) {
 	}
 
 
-
+	DBG_EXIT
 }
 
 void * realloc (void * ptr, size_t new_size) {

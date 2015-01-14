@@ -26,4 +26,4 @@ $(TARGET): $(TARGET).c
 	$(CC) $(CCFLAGS) $(MYFLAGS) $(MYLIBS) $(TARGET).c -o $(TARGET) -lpthread -lm -lSimpleMTMM
 
 clean:
-	rm -f $(TARGET)  *.o libSimpleMTMM.a
+	rm -f $(TARGET)  *.o libSimpleMTMM.a *core*
