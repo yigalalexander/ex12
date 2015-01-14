@@ -236,23 +236,31 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 	void * temp;
 	BlockHeader * raw_mem_pos;
 	BlockHeader * prev_block_pos;
+	void * temp_new_pointer;
 	int max_blocks;
 	int i;
 	size_t block_size;
 	SuperBlockList * target_list;
-	int class_block_size=((int)pow(2,class));
+	size_t class_block_size=((size_t)pow(2,class));
 	temp=fetch_os_memory(SUPERBLOCK_SIZE);
 	SuperBlock * new_sb=((SuperBlock *) temp);
+
+
 	block_size=class_block_size+sizeof(BlockHeader);
 	DBG_MSG("Got a block from the OS s:%p f:%p block_size:%d",temp,temp+SUPERBLOCK_SIZE,block_size);
 	/* Init the superblock header*/
 	new_sb->blocks.head=NULL;
 	new_sb->blocks.tail=NULL;
 	new_sb->raw_mem=temp+sizeof(SuperBlock); /* Starting point of blocks */
-	DBG_MSG("starting point for raw mem for this sb is: %p",new_sb->raw_mem);
+
 	new_sb->next=NULL;
 	new_sb->prev=NULL;
 	new_sb->parent_heap=heap;
+
+	DBG_MSG("starting point for raw mem for this sb is: %p",new_sb->raw_mem);
+
+	pthread_mutex_init(&(new_sb->mutex), NULL); /* Init Superblock mutex*/
+
 
 
 	/* Number of block the size of sizeclass with a header in the remaining space after removing the SuperBlock header*/
@@ -264,13 +272,14 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 
 	/* Chop the superblock into blocks */
 	for (i=1; i<=max_blocks; i++) {
-		//DBG_MSG("Init block #%d - current pointer is %p ",i,raw_mem_pos);
+
+		temp_new_pointer=raw_mem_pos+sizeof(BlockHeader);
 		((BlockHeader *)raw_mem_pos)->parent_super_block=new_sb;//add the new block as a pointer to block_pos;
-		((BlockHeader *)raw_mem_pos)->raw_mem=raw_mem_pos+sizeof(BlockHeader); // set the pointer for the Block raw memory
+		((BlockHeader *)raw_mem_pos)->raw_mem=temp_new_pointer; // set the pointer for the Block raw memory
 		((BlockHeader *)raw_mem_pos)->size=class_block_size;
 		((BlockHeader *)raw_mem_pos)->next=(BlockHeader *)(raw_mem_pos+block_size);
 		((BlockHeader *)raw_mem_pos)->prev=prev_block_pos;
-
+		DBG_MSG("block #%d - pos: %p raw_mem: %p parent_sb is: %p",i,raw_mem_pos,raw_mem_pos->raw_mem,new_sb);
 		prev_block_pos=(BlockHeader *)raw_mem_pos;//advance prev_block_pos
 		raw_mem_pos += block_size;//increase raw_mem_pos;
 		//DBG_MSG("finished block");
@@ -303,10 +312,13 @@ static SuperBlock * add_superblock_to_heap (MemHeap * heap, int class) {
 
 }
 
-static size_t get_block_size(void * ptr) {
+size_t get_block_size(void * ptr) {
 	DBG_ENTRY
+	BlockHeader * header;
+
+	header = (BlockHeader *)(ptr-sizeof(BlockHeader));
 	if (ptr!=NULL) {
-		return ( ((BlockHeader *)(ptr-sizeof(BlockHeader)))->size );
+		return ( header->size );
 	}
 	DBG_EXIT
 	return (-1);
@@ -470,7 +482,7 @@ static void * malloc_work (size_t sz) {
 
 			if (source_sb==NULL) {
 				DBG_MSG("Unlocking global heap\n");
-				pthread_mutex_unlock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class].mutex) ); /* release the global heap, we don't need it */
+
 				source_sb=add_superblock_to_heap( &( hoard.mHeaps[thread_heap] ) ,relevant_class); /*8. Allocate S bytes as superblock s and set the owner to heap i.*/
 			} else {
 				move_superblock( &(hoard.mHeaps[GLOBAL_HEAP]),
@@ -488,6 +500,8 @@ static void * malloc_work (size_t sz) {
 					16. s.u ← s.u + sz.
 			 */
 			p=allocate_from_superblock(source_sb,sz);
+			DBG_MSG("Unlocking global heap  for class %d",relevant_class);
+			pthread_mutex_unlock( &(hoard.mHeaps[GLOBAL_HEAP].sizeClasses[relevant_class].mutex) ); /* release the global heap, we don't need it */
 			DBG_MSG("Unlocking heap %d for class %d",thread_heap,relevant_class);
 			pthread_mutex_unlock( &(hoard.mHeaps[thread_heap].sizeClasses[relevant_class].mutex) ); //17. Unlock heap i.
 			DBG_MSG("Successful acllocation - returning pointer %p Size: %d",p,get_block_size(p));
@@ -544,9 +558,9 @@ void free (void * ptr) {
 
 
 	if (ptr!=NULL){
-		DBG_MSG("Ptr before shift: %p",ptr);
+
 		block_ptr=(BlockHeader *)(ptr-sizeof(BlockHeader));
-		DBG_MSG("Ptr after shift: %p",block_ptr);
+		DBG_MSG("Ptr before shift: %p Ptr after shift: %p superblock: %p",ptr,block_ptr,block_ptr->parent_super_block);
 		returned_size=get_block_size(ptr);
 		DBG_MSG("Size returned is: %d",returned_size);
 		if ( returned_size > BLOCK_LIMIT) { /*1. If the block is “large” */
@@ -558,7 +572,8 @@ void free (void * ptr) {
 			/* 3. Find the superblock s this block comes from and lock it, */
 			origin_sb=block_ptr->parent_super_block;
 
-			pthread_mutex_lock(&(origin_sb->mutex));
+			printf("Going to lock mutex at pointer %p",&(origin_sb->mutex));
+			pthread_mutex_lock( &(origin_sb->mutex) );
 
 			origin_heap=origin_sb->parent_heap;
 
@@ -584,6 +599,8 @@ void free (void * ptr) {
 			}
 			update_heap_stats(origin_heap,0,(-1)*(returned_size));
 
+			pthread_mutex_unlock(&(origin_sb->mutex)); /* Unlock superblock*/
+			pthread_mutex_unlock( &(origin_heap->sizeClasses[relevant_class].mutex) );
 			maintain_invariant(origin_heap);
 			/*
 
